@@ -23,7 +23,11 @@ export default function Logowanie() {
                 formData.get("email"),
                 formData.get("password")
             );
-            router.push(auth.user.czyTechnik ? "/techpanel" : "/userpanel");
+            if (auth.user.czyTechnik) {
+                router.push("/techpanel");
+            } else {
+                router.push("/userpanel");
+            }
         } catch (err) {
             setError(err.message);
         } finally {
@@ -61,12 +65,20 @@ export default function Logowanie() {
                         required
                     />
                 </label>
-                {error && <p role="alert" className="tech-form-note">{error}</p>}
+                {error && (
+                    <p role="alert" className="tech-form-note">
+                        {error}
+                    </p>
+                )}
                 <button className="tech-static-button" disabled={busy}>
-                    {busy ? "Logowanie..." : "Zaloguj się"}
+                    {busy && "Logowanie..."}
+                    {!busy && "Zaloguj się"}
                 </button>
                 <p className="tech-form-note">
-                    Nie masz konta? <Link className="tech-link" href="/rejestracja">Zarejestruj się</Link>
+                    Nie masz konta?{" "}
+                    <Link className="tech-link" href="/rejestracja">
+                        Zarejestruj się
+                    </Link>
                 </p>
             </form>
         </TechLayout>

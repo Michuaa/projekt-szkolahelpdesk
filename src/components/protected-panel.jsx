@@ -9,6 +9,7 @@ export default function ProtectedPanel({ role, children }) {
     const [allowed, setAllowed] = useState(false);
 
     useEffect(() => {
+        let isCurrent = true;
         const auth = getSavedAuth();
 
         if (!auth?.token || !auth?.user) {
@@ -17,16 +18,23 @@ export default function ProtectedPanel({ role, children }) {
         }
 
         const isTechnician = auth.user.czyTechnik === true;
-        const hasCorrectRole =
-            role === "tech" ? isTechnician : !isTechnician;
-
-        if (!hasCorrectRole) {
-            router.replace(isTechnician ? "/techpanel" : "/userpanel");
+        const shouldBeTechnician = role === "tech";
+        if (isTechnician !== shouldBeTechnician) {
+            let destination = "/userpanel";
+            if (isTechnician) destination = "/techpanel";
+            router.replace(destination);
             return;
         }
 
-        setAllowed(true);
+        Promise.resolve().then(() => {
+            if (isCurrent) setAllowed(true);
+        });
+
+        return () => {
+            isCurrent = false;
+        };
     }, [role, router]);
 
-    return allowed ? children : null;
+    if (!allowed) return null;
+    return children;
 }

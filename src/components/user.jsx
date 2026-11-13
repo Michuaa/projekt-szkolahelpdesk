@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import TechLayout from "@/components/tech-layout";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,16 +12,24 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+    fetchAllRecords,
     getSavedAuth,
     logout,
     pocketBaseFetch,
     POCKETBASE_URL,
 } from "@/lib/pocketbase";
+import {
+    ISSUE_CATEGORIES,
+    ISSUE_PRIORITIES,
+    ISSUE_ROOMS,
+    ISSUE_STATUS_LABELS,
+} from "@/lib/issue-options";
+
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 const themeCardStyle = {
     backgroundColor: "var(--surface)",
@@ -28,35 +37,74 @@ const themeCardStyle = {
     color: "var(--text)",
 };
 
+const selectClassName =
+    "h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground";
+
+function getTicketImageUrl(record) {
+    if (!record.zdjecie) return null;
+
+    return `${POCKETBASE_URL}/api/files/issues/${record.id}/${encodeURIComponent(record.zdjecie)}`;
+}
+
+function getTicketStatus(status) {
+    if (ISSUE_STATUS_LABELS[status]) return ISSUE_STATUS_LABELS[status];
+    return status;
+}
+
 function mapTicket(record) {
+    let status = "nowe";
+    if (record.status) status = record.status;
+
+    let comment = "";
+    if (record.komentarz) comment = record.komentarz;
+
     return {
         id: record.id,
         title: record.tytul,
         description: record.opis,
-        isUrgent: record.czy_pilne,
-        imageName: record.zdjecie || null,
-        imageUrl: record.zdjecie
-            ? `${POCKETBASE_URL}/api/files/issues/${record.id}/${encodeURIComponent(record.zdjecie)}`
-            : null,
+        room: record.sala,
+        category: record.kategoria,
+        priority: record.priorytet,
+        status,
+        comment,
+        imageUrl: getTicketImageUrl(record),
     };
 }
 
 export default function User() {
     const router = useRouter();
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [isUrgent, setIsUrgent] = useState(false);
     const [tickets, setTickets] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
 
     useEffect(() => {
-        pocketBaseFetch(
-            "/api/collections/issues/records?sort=-created&perPage=100"
-        )
-            .then((data) => setTickets((data.items || []).map(mapTicket)))
-            .catch((err) => setError(err.message))
-            .finally(() => setIsLoading(false));
+        const userId = getSavedAuth()?.user?.id;
+
+        async function loadTickets() {
+            try {
+                if (!userId) {
+                    throw new Error(
+                        "Nie udało się odczytać zalogowanego użytkownika. Zaloguj się ponownie."
+                    );
+                }
+
+                const records = await fetchAllRecords(
+                    "issues",
+                    `uzytkownik = "${userId}"`
+                );
+                setTickets(records.map(mapTicket));
+            } catch (err) {
+                let message = "Nie udało się pobrać zgłoszeń.";
+                if (err.message) message = err.message;
+                setError(message);
+            } finally {
+                setIsLoading(false);
+            }
+        }
+
+        loadTickets();
     }, []);
 
     function handleLogout() {
@@ -70,8 +118,7 @@ export default function User() {
         const form = event.currentTarget;
         const input = new FormData(form);
         const image = input.get("zdjecie");
-        const auth = getSavedAuth();
-        const userId = auth?.user?.id;
+        const userId = getSavedAuth()?.user?.id;
 
         if (!userId) {
             setError(
@@ -80,10 +127,24 @@ export default function User() {
             return;
         }
 
+        if (image instanceof File && image.size > 0) {
+            if (!image.type.startsWith("image/")) {
+                setError("Do zgłoszenia można dołączyć tylko plik graficzny.");
+                return;
+            }
+            if (image.size > MAX_IMAGE_SIZE) {
+                setError("Zdjęcie nie może być większe niż 5 MB.");
+                return;
+            }
+        }
+
         const data = new FormData();
         data.append("tytul", input.get("tytul"));
         data.append("opis", input.get("opis"));
-        data.append("czy_pilne", String(isUrgent));
+        data.append("sala", input.get("sala"));
+        data.append("kategoria", input.get("kategoria"));
+        data.append("priorytet", input.get("priorytet"));
+        data.append("status", "nowe");
         data.append("uzytkownik", userId);
 
         if (image instanceof File && image.size > 0) {
@@ -104,13 +165,76 @@ export default function User() {
 
             setTickets((current) => [mapTicket(record), ...current]);
             form.reset();
-            setIsUrgent(false);
             setIsFormOpen(false);
         } catch (err) {
-            setError(err.message || "Nie udało się wysłać zgłoszenia.");
+            let message = "Nie udało się wysłać zgłoszenia.";
+            if (err.message) message = err.message;
+            setError(message);
         } finally {
             setIsSubmitting(false);
         }
+    }
+
+    let formButtonLabel = "DODAJ ZGŁOSZENIE";
+    if (isFormOpen) formButtonLabel = "ANULUJ";
+
+    let submitButtonLabel = "Wyślij zgłoszenie";
+    if (isSubmitting) submitButtonLabel = "Wysyłanie...";
+
+    let ticketContent;
+    if (isLoading) {
+        ticketContent = (
+            <p style={{ color: "var(--muted)" }}>Ładowanie zgłoszeń...</p>
+        );
+    } else if (tickets.length === 0 && !isFormOpen) {
+        ticketContent = (
+            <div className="tech-placeholder">
+                <div>
+                    <div className="tech-placeholder-icon" aria-hidden="true">
+                        ✧
+                    </div>
+                    <h3>Brak zgłoszeń do wyświetlenia</h3>
+                    <p>Lista zgłoszeń pojawi się w tym miejscu.</p>
+                </div>
+            </div>
+        );
+    } else {
+        ticketContent = (
+            <div className="grid gap-4">
+                {tickets.map((ticket) => (
+                    <Card key={ticket.id} style={themeCardStyle}>
+                        <CardHeader>
+                            <CardTitle>{ticket.title}</CardTitle>
+                            <CardDescription style={{ color: "var(--muted)" }}>
+                                Sala {ticket.room} · {ticket.category} · Priorytet: {ticket.priority}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-3">
+                            <p className="whitespace-pre-wrap">{ticket.description}</p>
+                            <p className="text-sm font-medium">
+                                Status: {getTicketStatus(ticket.status)}
+                            </p>
+                            {ticket.comment && (
+                                <p className="text-sm">
+                                    Komentarz technika: {ticket.comment}
+                                </p>
+                            )}
+                            {ticket.imageUrl && (
+                                <Image
+                                    src={ticket.imageUrl}
+                                    alt={`Zdjęcie do zgłoszenia: ${ticket.title}`}
+                                    width={960}
+                                    height={720}
+                                    unoptimized
+                                    className="mt-1 max-h-96 w-auto max-w-full rounded-lg border object-contain"
+                                    style={{ borderColor: "var(--line)" }}
+                                />
+                            )}
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        );
     }
 
     return (
@@ -128,7 +252,7 @@ export default function User() {
                         setError("");
                     }}
                 >
-                    {isFormOpen ? "ANULUJ" : "DODAJ ZGŁOSZENIE"}
+                    {formButtonLabel}
                 </Button>
 
                 <Button
@@ -175,22 +299,69 @@ export default function User() {
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <Checkbox
-                                    id="czy_pilne"
-                                    checked={isUrgent}
-                                    onCheckedChange={(checked) =>
-                                        setIsUrgent(checked === true)
-                                    }
-                                />
-                                <Label htmlFor="czy_pilne">
-                                    Zgłoszenie pilne
-                                </Label>
+                            <div className="grid gap-2">
+                                <Label htmlFor="sala">Sala</Label>
+                                <select
+                                    id="sala"
+                                    name="sala"
+                                    className={selectClassName}
+                                    defaultValue=""
+                                    required
+                                >
+                                    <option value="" disabled>
+                                        Wybierz salę
+                                    </option>
+                                    {ISSUE_ROOMS.map((room) => (
+                                        <option key={room} value={room}>
+                                            {room}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="kategoria">Kategoria</Label>
+                                <select
+                                    id="kategoria"
+                                    name="kategoria"
+                                    className={selectClassName}
+                                    defaultValue=""
+                                    required
+                                >
+                                    <option value="" disabled>
+                                        Wybierz kategorię
+                                    </option>
+                                    {ISSUE_CATEGORIES.map((category) => (
+                                        <option key={category} value={category}>
+                                            {category}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="priorytet">Priorytet</Label>
+                                <select
+                                    id="priorytet"
+                                    name="priorytet"
+                                    className={selectClassName}
+                                    defaultValue=""
+                                    required
+                                >
+                                    <option value="" disabled>
+                                        Wybierz priorytet
+                                    </option>
+                                    {ISSUE_PRIORITIES.map((priority) => (
+                                        <option key={priority} value={priority}>
+                                            {priority}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             <div className="grid gap-2">
                                 <Label htmlFor="zdjecie">
-                                    Zdjęcie (opcjonalnie)
+                                    Zdjęcie usterki (opcjonalnie, maks. 5 MB)
                                 </Label>
                                 <Input
                                     id="zdjecie"
@@ -207,9 +378,7 @@ export default function User() {
                             )}
 
                             <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting
-                                    ? "Wysyłanie..."
-                                    : "Wyślij zgłoszenie"}
+                                {submitButtonLabel}
                             </Button>
                         </form>
                     </CardContent>
@@ -222,52 +391,7 @@ export default function User() {
                 </p>
             )}
 
-            {isLoading ? (
-                <p style={{ color: "var(--muted)" }}>
-                    Ładowanie zgłoszeń...
-                </p>
-            ) : tickets.length === 0 && !isFormOpen ? (
-                <div className="tech-placeholder">
-                    <div>
-                        <div
-                            className="tech-placeholder-icon"
-                            aria-hidden="true"
-                        >
-                            ✧
-                        </div>
-                        <h3>Brak zgłoszeń do wyświetlenia</h3>
-                        <p>Lista zgłoszeń pojawi się w tym miejscu.</p>
-                    </div>
-                </div>
-            ) : (
-                <div className="grid gap-4">
-                    {tickets.map((ticket) => (
-                        <Card key={ticket.id} style={themeCardStyle}>
-                            <CardHeader>
-                                <CardTitle>{ticket.title}</CardTitle>
-                                <CardDescription
-                                    style={{ color: "var(--muted)" }}
-                                >
-                                    {ticket.isUrgent ? "Pilne" : "Standardowe"}
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="whitespace-pre-wrap">
-                                    {ticket.description}
-                                </p>
-                              {ticket.imageUrl && (
-    <img
-        src={ticket.imageUrl}
-        alt={`Zdjęcie do zgłoszenia: ${ticket.title}`}
-        className="mt-3 max-h-96 w-auto max-w-full rounded-lg border object-contain"
-        style={{ borderColor: "var(--line)" }}
-    />
-)}
-                            </CardContent>
-                        </Card>
-                    ))}
-                </div>
-            )}
+            {ticketContent}
         </TechLayout>
     );
 }

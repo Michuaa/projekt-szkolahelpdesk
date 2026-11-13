@@ -18,19 +18,61 @@ function saveAuth(data) {
     return auth;
 }
 
+async function readResponse(response, fallbackMessage) {
+    let data;
+
+    try {
+        data = await response.json();
+    } catch {
+        if (!response.ok) {
+            throw new Error(
+                `${fallbackMessage} (HTTP ${response.status}; PocketBase nie zwrócił poprawnej odpowiedzi JSON).`
+            );
+        }
+        throw new Error("PocketBase zwrócił nieprawidłową odpowiedź.");
+    }
+
+    if (!response.ok) {
+        const fieldErrors = [];
+        for (const [field, details] of Object.entries(data.data || {})) {
+            if (details?.message) {
+                fieldErrors.push(`${field}: ${details.message}`);
+            }
+        }
+
+        let message = fieldErrors.join("; ");
+        if (
+            response.status === 400 &&
+            data.message === "Failed to authenticate."
+        ) {
+            message =
+                "Nieprawidłowy e-mail lub hasło albo konto nie istnieje w kolekcji users. Sprawdź dane logowania i konto w PocketBase.";
+        } else if (!message) {
+            message = data.message || fallbackMessage;
+        }
+
+        throw new Error(`${message} (HTTP ${response.status})`);
+    }
+
+    return data;
+}
+
 export async function login(email, password) {
+    let identity = "";
+    if (typeof email === "string") {
+        identity = email.trim();
+    }
+
     const response = await fetch(
         `${POCKETBASE_URL}/api/collections/users/auth-with-password`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ identity: email, password }),
+            body: JSON.stringify({ identity, password }),
         }
     );
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Logowanie nie powiodło się.");
-
+    const data = await readResponse(response, "Logowanie nie powiodło się.");
     return saveAuth(data);
 }
 
@@ -50,16 +92,7 @@ export async function register({ name, email, password }) {
         }
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-        const fieldErrors = Object.entries(data.data || {})
-            .map(([field, details]) => `${field}: ${details.message}`)
-            .join("; ");
-
-        throw new Error(fieldErrors || data.message || "Rejestracja nie powiodła się.");
-    }
-
+    await readResponse(response, "Rejestracja nie powiodła się.");
     return login(email, password);
 }
 
@@ -82,4 +115,29 @@ export async function pocketBaseFetch(path, options = {}) {
     if (!response.ok) throw new Error(data.message || "Wystąpił błąd.");
 
     return data;
+}
+
+export async function fetchAllRecords(collection, filter) {
+    const records = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+        const query = new URLSearchParams({
+            page: String(page),
+            perPage: "200",
+            sort: "-created",
+        });
+
+        if (filter) query.set("filter", filter);
+
+        const result = await pocketBaseFetch(
+            `/api/collections/${collection}/records?${query.toString()}`
+        );
+        records.push(...(result.items || []));
+        totalPages = result.totalPages || 1;
+        page += 1;
+    } while (page <= totalPages);
+
+    return records;
 }

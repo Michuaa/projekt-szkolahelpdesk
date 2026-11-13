@@ -1,0 +1,564 @@
+DOKUMENTACJA PROJEKTU SZKOLA HELPDESK
+=====================================
+
+Ten plik jest przewodnikiem dla osoby, która pierwszy raz czyta projekt.
+Opisuje 27 plików źródłowych z katalogu src/ oraz ikonę favicon, przepływ
+działania aplikacji, funkcje i ważne konstrukcje JSX. Nie jest to komentarz do
+każdej spacji ani do każdej klasy CSS:
+takie powtórzenie nie ułatwiłoby nauki. Ważne linie przykładowego wiersza
+zgłoszenia z panelu technika są natomiast wyjaśnione osobno, krok po kroku.
+
+1. JAK DZIAŁA APLIKACJA
+-----------------------
+
+Projekt jest aplikacją Next.js z Reactem. Next.js zamienia pliki w src/app/
+w adresy strony. React buduje interfejs z komponentów. Użytkownik i technik
+logują się przez PocketBase, a dane zgłoszeń są pobierane i zapisywane przez
+PocketBase REST API.
+
+Najważniejsze ścieżki:
+
+  /               formularz logowania
+  /rejestracja    formularz tworzenia konta
+  /userpanel      panel zalogowanego użytkownika
+  /techpanel      panel zalogowanego technika
+
+Po zalogowaniu aplikacja zapisuje token i dane konta w localStorage przeglądarki.
+Pole users.czyTechnik określa rolę. Użytkownik tworzy zgłoszenie i widzi swoje
+zgłoszenia. Technik widzi zgłoszenia i może zmieniać ich status oraz komentarz.
+Prywatność danych musi być dodatkowo wymuszona regułami kolekcji w PocketBase;
+sam interfejs przeglądarki nie jest zabezpieczeniem API.
+
+2. PODSTAWOWE POJĘCIA UŻYTE W KODZIE
+------------------------------------
+
+Komponent
+  Funkcja JavaScript zwracająca elementy interfejsu. Nazwy komponentów React
+  zapisuje się zwykle wielką literą, np. User albo TableRow.
+
+JSX
+  Składnia przypominająca HTML używana wewnątrz JavaScriptu. Wyrażenie
+  JavaScript umieszcza się w nawiasach klamrowych, np. {ticket.tytul}.
+
+Props
+  Właściwości przekazywane do komponentu, np. <ProtectedPanel role="tech">.
+  Komponent odbiera je jako argument funkcji.
+
+State / useState
+  Wartość, która może się zmieniać podczas działania strony. setTickets(...)
+  aktualizuje listę zgłoszeń i powoduje ponowne narysowanie widoku.
+
+useEffect
+  Uruchamia kod związany z zewnętrznym światem, np. pobranie danych po
+  wyświetleniu panelu albo rejestrację nasłuchiwania zdarzenia.
+
+async / await
+  Ułatwia zapis operacji wykonywanych przez sieć. await czeka na odpowiedź,
+  a try/catch obsługuje błąd.
+
+map
+  Zamienia każdy element tablicy na element widoku. W React każdy powtarzany
+  element potrzebuje stabilnego key, zwykle identyfikatora rekordu.
+
+&& w JSX
+  Pokazuje element tylko wtedy, gdy warunek jest prawdziwy. Przykład:
+  {ticket.imageUrl && <img ... />} oznacza „jeśli jest adres zdjęcia, pokaż
+  zdjęcie”.
+
+? :
+  Operator warunkowy: warunek ? wynik_gdy_prawda : wynik_gdy_fałsz.
+
+?.
+  Bezpieczny dostęp do właściwości. auth?.user nie wywoła błędu, gdy auth
+  jest pustą wartością.
+
+??
+  Wybiera wartość domyślną tylko wtedy, gdy lewa strona jest null albo undefined.
+  Jest bardziej precyzyjny niż ||, które zastępuje również pusty tekst.
+
+...props
+  Przekazuje pozostałe właściwości do elementu bazowego. Dzięki temu komponent
+  Input może przyjąć np. required, name, onChange i przekazać je do inputa.
+
+className i cn(...)
+  className zawiera klasy Tailwind. cn łączy klasy domyślne z klasami
+  przekazanymi z miejsca użycia.
+
+3. STRUKTURA PLIKÓW
+-------------------
+
+src/app/
+  Pliki stron i wspólne style Next.js.
+
+src/components/
+  Panele, formularze i wspólne elementy interfejsu.
+
+src/components/ui/
+  Małe komponenty UI, które opakowują komponenty Base UI albo elementy HTML
+  i dodają im wspólne klasy.
+
+src/lib/
+  Funkcje pomocnicze, połączenie z PocketBase i listy dozwolonych wartości.
+
+4. PLIKI STRON NEXT.JS
+----------------------
+
+src/app/layout.js
+  Wspólny układ całej witryny.
+
+  Import Geist i Geist_Mono pobiera rodziny czcionek Next.js. Wywołania Geist
+  konfiguruje zmienne CSS dla czcionek. metadata ustawia tytuł i opis strony
+  w przeglądarce. RootLayout zwraca html z językiem polskim i body, do którego
+  Next.js wstawia aktualną stronę przez children.
+
+src/app/page.js
+  Strona pod adresem /. Importuje Logowanie i zwraca jego komponent.
+  Funkcja Home nie ma własnej logiki — jest punktem wejścia strony Next.js.
+
+src/app/rejestracja/page.js
+  Strona pod adresem /rejestracja. Importuje i wyświetla formularz Rejestracja.
+  Nie przechowuje stanu; logika formularza znajduje się w komponencie formularza.
+
+src/app/userpanel/page.js
+  Strona panelu użytkownika. "use client" pozwala używać hooków przeglądarkowych.
+  UserPanelPage otacza User komponentem ProtectedPanel z rolą "user". Oznacza to,
+  że najpierw sprawdzane jest logowanie i rola, a potem pokazywany jest panel.
+
+src/app/techpanel/page.js
+  Strona panelu technika. Działa analogicznie do userpanel/page.js, ale wymaga
+  roli "tech" i wyświetla komponent Tech.
+
+src/app/globals.css
+  Globalne style i definicje kolorów.
+
+  @import ładuje Tailwind, animacje i style shadcn. @custom-variant definiuje
+  wariant dark. Blok @theme inline łączy nazwy kolorów Tailwind z CSS
+  variables, np. --color-background wskazuje na --background.
+
+  :root zawiera jasny zestaw kolorów, a .dark — ciemny. Są tu m.in. kolory
+  tekstu, tła, kart, obramowania i kontrolek. @layer base ustawia domyślne
+  obramowania i kolory strony. Te zmienne służą komponentom UI.
+
+src/app/favicon.ico
+  Ikona strony przeglądarki. To plik binarny, a nie kod JavaScript.
+
+5. LOGOWANIE I REJESTRACJA
+--------------------------
+
+src/components/logowanie.jsx
+
+  Logowanie jest komponentem klienckim. useState przechowuje komunikat error
+  oraz informację busy o wysyłaniu formularza. useRouter umożliwia przejście
+  do panelu po poprawnym logowaniu.
+
+  handleSubmit:
+    1. event.preventDefault() blokuje standardowe przeładowanie strony.
+    2. busy jest ustawiane na true, a stary komunikat błędu jest czyszczony.
+    3. FormData zbiera pola formularza według ich name.
+    4. login(email, password) wysyła dane do PocketBase.
+    5. Rola konta wybiera /techpanel albo /userpanel.
+    6. catch pokazuje błąd użytkownikowi.
+    7. finally zawsze kończy stan wysyłania.
+
+  JSX zawiera TechLayout, pola e-mail i hasło, komunikat błędu, przycisk
+  wyłączony podczas wysyłania oraz link do rejestracji. type="email" i required
+  uruchamiają podstawową walidację przeglądarki.
+
+src/components/rejestracja.jsx
+
+  Rejestracja przechowuje błąd i stan wysyłania. handleSubmit zbiera imię,
+  e-mail, hasło i powtórzone hasło. Jeśli hasła są różne, ustawia błąd i kończy
+  funkcję przed wysłaniem. W innym przypadku wywołuje register(...), po czym
+  przekierowuje nowo zalogowaną osobę do odpowiedniego panelu. catch pokazuje
+  błąd, finally odblokowuje formularz.
+
+  Pola formularza mają name, których używa FormData. Link na końcu prowadzi do
+  strony logowania.
+
+src/components/protected-panel.jsx
+
+  ProtectedPanel przyjmuje role ("tech" albo "user") i children, czyli panel
+  przeznaczony do pokazania. useEffect odczytuje zapisane logowanie.
+
+  Brak tokenu lub danych użytkownika powoduje przejście na stronę logowania.
+  czyTechnik określa, czy konto jest technikiem. Jeśli rola nie pasuje do strony,
+  router.replace przenosi osobę do właściwego panelu. allowed jest ustawiane
+  na true tylko dla poprawnej roli. Bez allowed komponent nie pokazuje panelu.
+
+  To kontrola widoku po stronie przeglądarki. Reguły PocketBase nadal muszą
+  zabraniać nieuprawnionego dostępu do danych.
+
+6. WSPÓLNY UKŁAD I MOTYW
+------------------------
+
+src/components/tech-layout.jsx
+
+  Komponent TechLayout tworzy nagłówek Helpdesk, tytuł strony, kartę treści
+  i przełącznik motywu. Props takie jak title, subtitle i sectionTitle pochodzą
+  z panelu albo formularza. children to zawartość, którą layout opakowuje.
+
+  THEME_KEY to nazwa w localStorage, gdzie zapisywany jest motyw. THEME_EVENT
+  to własne zdarzenie przeglądarki, informujące komponenty o jego zmianie.
+  subscribeToTheme podpina i odpina odbiorniki zdarzeń. getThemeSnapshot odczytuje
+  motyw z html[data-theme]. getServerThemeSnapshot zwraca jasny motyw podczas
+  renderowania po stronie serwera.
+
+  useSyncExternalStore synchronizuje React ze zmianami motywu poza stanem React.
+  useEffect po uruchomieniu strony odczytuje zapisany motyw, aktualizuje atrybut
+  data-theme i emituje zdarzenie. toggleTheme przełącza jasny/ciemny, zapisuje
+  wybór i emituje zdarzenie. Obsługa localStorage jest w try/catch, bo przeglądarka
+  może blokować zapis.
+
+  Wbudowany blok style zawiera wygląd całego layoutu. .tech-page definiuje
+  kolory jasnego motywu, .tech-page[data-theme="dark"] nadpisuje je dla ciemnego.
+  Zmienne --background, --foreground, --popover, --input itd. łączą motyw layoutu
+  z komponentami Tailwind. color-scheme pozwala przeglądarce dobrać natywny
+  wygląd kontrolek. Selektory .tech-page select i select option określają kolor
+  list rozwijanych. @media dostosowuje odstępy do małych ekranów.
+
+  Struktura JSX:
+    main ma atrybut data-theme z aktywnym motywem.
+    header zawiera markę i przycisk przełączania motywu.
+    section.tech-heading pokazuje nagłówek strony.
+    section.tech-card jest kartą z tytułem sekcji i children.
+
+7. PANEL TECHNIKA
+-----------------
+
+src/components/tech.jsx
+
+  Stałe filterClassName i statusClassName określają wygląd pól wyboru.
+  Tech korzysta z useState do przechowywania zgłoszeń, trzech filtrów, edytowanych
+  komentarzy, stanu ładowania, błędu i identyfikatora właśnie zapisywanego wpisu.
+
+  loadTickets pobiera wszystkie strony zgłoszeń z PocketBase przez fetchAllRecords.
+  Jeśli pobranie się nie powiedzie, pokazuje błąd. finally zawsze kończy stan
+  ładowania. useEffect uruchamia pobranie po pokazaniu panelu.
+
+  handleLogout usuwa zapisane logowanie i wraca do strony głównej.
+
+  updateTicket(ticket, changes):
+    - oznacza bieżący rekord jako zajęty i czyści błąd;
+    - wysyła PATCH do rekordu PocketBase;
+    - zastępuje starą wersję zgłoszenia odpowiedzią serwera;
+    - jeżeli zapisywanym polem był komentarz, aktualizuje także lokalny szkic;
+    - catch pokazuje błąd, finally zwalnia przycisk.
+
+  visibleTickets odfiltrowuje zgłoszenia według statusu, sali i priorytetu.
+  Brak statusu w starym rekordzie jest traktowany jak "nowe". String(ticket.sala)
+  pozwala porównać liczbę sali z wartością select, która jest tekstem.
+
+  Widok pokazuje filtry, wylogowanie i jeden z trzech stanów: ładowanie, brak
+  pasujących wyników albo tabelę. W tabeli każdy rekord ma opis, salę, kategorię,
+  priorytet, wybór statusu, edytor komentarza i przycisk zapisu. Zmiana selecta
+  statusu od razu wywołuje updateTicket. Komentarz zapisuje się po naciśnięciu
+  przycisku.
+
+  Dla zdjęcia imageUrl składa adres pliku PocketBase. Link otwiera obraz w nowej
+  karcie. target="_blank" w połączeniu z rel="noreferrer" nie przekazuje nowej
+  stronie informacji o stronie otwierającej.
+
+WYJAŚNIENIE WIERSZA TABELI KROK PO KROKU
+
+Fragment ma postać:
+
+  <TableRow key={ticket.id}>
+      <TableCell className="min-w-64 whitespace-normal">
+          <p className="font-semibold">{ticket.tytul}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+              {ticket.opis}
+          </p>
+          {imageUrl && (
+              <a href={imageUrl} target="_blank" rel="noreferrer"
+                 className="mt-2 inline-block text-sm underline">
+                  Zobacz zdjęcie
+              </a>
+          )}
+      </TableCell>
+      ...
+  </TableRow>
+
+Wyjaśnienie kolejnych linii i atrybutów:
+
+  <TableRow ...>
+    Rozpoczyna jeden wiersz tabeli. TableRow jest własnym komponentem projektu,
+    który renderuje semantyczny element HTML <tr>.
+
+  key={ticket.id}
+    React używa key do rozpoznania tego samego wiersza po aktualizacji listy.
+    ticket.id jest unikalnym identyfikatorem zgłoszenia z PocketBase. key nie jest
+    wyświetlany użytkownikowi.
+
+  <TableCell ...>
+    Rozpoczyna komórkę tabeli. TableCell renderuje element <td>.
+
+  className="min-w-64 whitespace-normal"
+    min-w-64 ustala minimalną szerokość komórki, aby opis miał miejsce.
+    whitespace-normal pozwala tekstowi zawijać się do kolejnych linii.
+
+  <p className="font-semibold">
+    Rozpoczyna akapit z pogrubionym tekstem.
+
+  {ticket.tytul}
+    Wstawia tytuł zgłoszenia pobrany z rekordu. Nawiasy klamrowe oznaczają,
+    że wewnątrz JSX wykonywane jest wyrażenie JavaScript.
+
+  </p>
+    Kończy akapit z tytułem.
+
+  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+    Rozpoczyna akapit opisu. mt-1 dodaje mały odstęp od tytułu. whitespace-pre-wrap
+    zachowuje nowe linie wpisane w opisie i jednocześnie zawija długi tekst.
+    text-sm zmniejsza tekst, a text-muted-foreground używa koloru drugorzędnego.
+
+  {ticket.opis}
+    Wstawia treść opisu danego zgłoszenia.
+
+  </p>
+    Kończy akapit opisu.
+
+  {imageUrl && (
+    To warunkowe renderowanie: link pojawi się tylko, gdy imageUrl ma wartość.
+    Gdy nie ma zdjęcia, React nie wyświetli tu żadnego elementu.
+
+  <a
+    Tworzy link HTML. Kliknięcie może otworzyć plik zdjęcia.
+
+  href={imageUrl}
+    Ustawia adres docelowy linku na adres pliku wyliczony wcześniej.
+
+  target="_blank"
+    Otwiera link w nowej karcie przeglądarki.
+
+  rel="noreferrer"
+    Nie przekazuje stronie zdjęcia adresu strony, z której link został otwarty.
+
+  className="mt-2 inline-block text-sm underline"
+    Dodaje odstęp nad linkiem, pozwala mu zachowywać się jak blok, ustawia
+    mniejszy tekst i podkreślenie.
+
+  Zobacz zdjęcie
+    Tekst widoczny i klikalny dla użytkownika.
+
+  </a>
+    Zamyka link.
+
+  )}
+    Zamyka warunkowe renderowanie.
+
+  </TableCell>
+    Zamyka komórkę ze zgłoszeniem.
+
+  Kolejne <TableCell> w tym samym TableRow pokazują salę, kategorię, priorytet,
+  status, komentarz i przycisk. Kolejność komórek musi odpowiadać nagłówkom
+  TableHead z początku tabeli.
+
+  </TableRow>
+    Kończy wiersz. W kodzie wiersz znajduje się wewnątrz visibleTickets.map(...),
+    więc powstaje jeden taki wiersz dla każdego zgłoszenia spełniającego filtry.
+
+8. PANEL UŻYTKOWNIKA
+--------------------
+
+src/components/user.jsx
+
+  MAX_IMAGE_SIZE oznacza 5 MiB (5 * 1024 * 1024 bajtów). themeCardStyle ustawia
+  kolory kart według aktywnego motywu. selectClassName jest wspólnym stylem pól
+  wyboru.
+
+  mapTicket(record) przekształca nazwy PocketBase na prostsze nazwy używane
+  w widoku: tytul na title, opis na description itd. Funkcja tworzy też publiczny
+  adres pliku zdjęcia, jeśli rekord ma zdjęcie. Status pusty lub brakujący mapuje
+  na "nowe", komentarz na pusty tekst.
+
+  User przechowuje otwarcie formularza, listę zgłoszeń, wysyłanie, ładowanie
+  i błąd. useEffect odczytuje id zalogowanego użytkownika, a następnie pobiera
+  tylko rekordy, których uzytkownik odpowiada temu id. Błąd pobierania jest
+  pokazywany, a finally kończy ładowanie.
+
+  handleLogout usuwa token z localStorage i kieruje na stronę logowania.
+
+  handleSubmit:
+    1. Zapobiega domyślnej wysyłce HTML i odczytuje pola przez FormData.
+    2. Sprawdza, czy odczytano użytkownika.
+    3. Dla wybranego pliku sprawdza MIME type image/* oraz limit 5 MB.
+    4. Buduje nowe FormData zawierające wymagane pola, status "nowe" i id autora.
+    5. Dodaje zdjęcie tylko wtedy, gdy użytkownik faktycznie wybrał plik.
+    6. Wysyła POST do kolekcji issues.
+    7. Po sukcesie dodaje zwrócony rekord na początek listy, czyści formularz
+       i go zamyka.
+    8. Błędy pokazuje pod formularzem, a finally kończy stan wysyłania.
+
+  Formularz zawiera tytuł, opis, salę, kategorię, priorytet i opcjonalne zdjęcie.
+  Opcje pochodzą z issue-options.js. required blokuje wysłanie pustych pól.
+  accept="image/*" pomaga użytkownikowi wybrać obraz w oknie plików, ale nie jest
+  zabezpieczeniem — dlatego kod sprawdza plik, a serwer powinien mieć własny limit.
+
+  Widok zgłoszeń najpierw pokazuje ładowanie, następnie pusty stan albo karty.
+  Każda karta pokazuje tytuł, salę, kategorię, priorytet, opis, status, komentarz
+  technika oraz zdjęcie, jeżeli istnieje. next/image renderuje zdjęcie; unoptimized
+  wyłącza optymalizację Next.js, ponieważ obraz jest plikiem z PocketBase.
+
+9. WSPÓLNE KOMPONENTY UI
+------------------------
+
+Komponenty w src/components/ui/ nie są logiką zgłoszeń. Są adapterami:
+przyjmują propsy, dodają klasy i przekazują propsy do Base UI albo HTML. Dzięki
+temu formularze i tabela mają spójny wygląd. data-slot to atrybut identyfikujący
+rodzaj elementu dla selektorów CSS. className pozwala dodać style w miejscu użycia.
+
+src/components/ui/accordion.jsx
+  Accordion używa Base UI Accordion.Root. AccordionItem tworzy jeden panel.
+  AccordionTrigger wyświetla przycisk rozwijania i ikony strzałek. AccordionContent
+  pokazuje zawartość i klasy animacji. Komponenty przekazują dalej propsy.
+
+src/components/ui/button.jsx
+  buttonVariants jest konfiguracją cva: ustala wspólne style oraz warianty
+  variant (default, outline, secondary, ghost, destructive, link) i size.
+  Button wybiera wariant i rozmiar, łączy klasy przez cn i przekazuje propsy do
+  Base UI Button. Dzięki temu przyciski zachowują semantykę i obsługę dostępności.
+
+src/components/ui/card.jsx
+  Card tworzy zewnętrzny kontener karty i obsługuje rozmiar. CardHeader to
+  nagłówek, CardTitle tytuł, CardDescription opis, CardAction obszar akcji,
+  CardContent treść, a CardFooter stopka. Każdy element przekazuje dzieci oraz
+  pozostałe propsy do elementu div.
+
+src/components/ui/checkbox.jsx
+  Checkbox opakowuje Base UI Checkbox. Root obsługuje stan i klawiaturę, a
+  Indicator wyświetla ikonę zaznaczenia. className dodaje wygląd i stany focus,
+  disabled, checked oraz błędu.
+
+src/components/ui/dropdown-menu.jsx
+  Zestaw adapterów Base UI Menu: DropdownMenu jest korzeniem menu, Portal
+  renderuje popup poza zwykłym układem strony, Trigger otwiera menu, Content
+  ustawia położenie, Group grupuje pozycje, Label dodaje podpis, Item tworzy
+  pozycję, Sub/SubTrigger/SubContent tworzą podmenu, CheckboxItem i RadioItem
+  tworzą pozycje wyboru, Separator rysuje linię, a Shortcut pokazuje skrót.
+  Każda funkcja dodaje data-slot i klasy, a zdarzenia oraz pozostałe propsy
+  przekazuje do Base UI.
+
+src/components/ui/field.jsx
+  FieldSet i FieldLegend tworzą semantyczne fieldset i legend. FieldGroup grupuje
+  kontrolki. fieldVariants ustawia układ pionowy, poziomy lub responsywny.
+  Field stosuje wybrany układ. FieldContent grupuje tekst przy polu. FieldLabel
+  i FieldTitle tworzą etykiety, FieldDescription tekst pomocniczy.
+  FieldSeparator rysuje separator z opcjonalnym podpisem.
+
+  FieldError wybiera tekst błędu. Jeśli przekazano children, używa ich. W innym
+  razie tworzy listę z errors, usuwa powtórzone wiadomości przez Map, pokazuje
+  pojedynczą wiadomość jako tekst lub kilka jako listę. useMemo zapamiętuje wynik,
+  dopóki children i errors się nie zmienią. Brak błędów zwraca null.
+
+src/components/ui/input.jsx
+  Input opakowuje Base UI Input. Zachowuje type, dokłada wspólne style i przekazuje
+  resztę propsów, np. name, required, value i onChange.
+
+src/components/ui/label.jsx
+  Label renderuje element <label> z domyślnymi stylami. htmlFor łączy etykietę
+  z kontrolką o takim samym id.
+
+src/components/ui/select.jsx
+  Select jest bezpośrednio korzeniem Base UI Select.Root. SelectGroup grupuje
+  opcje, SelectValue pokazuje bieżącą wartość, SelectTrigger otwiera listę,
+  a SelectContent renderuje popup w Portalu i ustawia jego pozycję.
+  SelectLabel opisuje grupę, SelectItem tworzy pojedynczą opcję z ikoną wyboru,
+  SelectSeparator rysuje podział, a ScrollUpButton/ScrollDownButton pokazują
+  strzałki przewijania. Wszystkie funkcje przekazują propsy do Base UI.
+
+src/components/ui/separator.jsx
+  Separator opakowuje Base UI Separator. orientation wybiera układ poziomy lub
+  pionowy, a klasy ustawiają wymiary i kolor.
+
+src/components/ui/table.jsx
+  Table opakowuje tabelę w kontener z poziomym przewijaniem. TableHeader, TableBody
+  i TableFooter renderują semantyczne thead, tbody i tfoot. TableRow renderuje tr,
+  TableHead komórkę nagłówka th, TableCell komórkę td, a TableCaption podpis
+  tabeli. Każdy adapter dodaje klasy i przekazuje propsy.
+
+src/components/ui/textarea.jsx
+  Textarea renderuje element HTML <textarea>, dodając wspólne style pola tekstowego
+  oraz przekazując propsy, np. value, placeholder i onChange.
+
+10. PLIKI POMOCNICZE I POŁĄCZENIE Z BAZĄ
+----------------------------------------
+
+src/lib/issue-options.js
+  ISSUE_ROOMS tworzy tablicę numerów 5–20, 100–122 oraz 200–222. Array.from
+  tworzy tablicę o podanej długości, a index + wartość początkowa tworzy numery.
+  ISSUE_CATEGORIES, ISSUE_PRIORITIES i ISSUE_STATUSES przechowują dozwolone
+  wartości używane w formularzu i filtrach. ISSUE_STATUS_LABELS mapuje zapisany
+  status na czytelną etykietę.
+
+src/lib/pocketbase.js
+
+  POCKETBASE_URL wskazuje adres serwera. AUTH_KEY jest nazwą wpisu w localStorage.
+
+  getSavedAuth odczytuje i parsuje zapisane logowanie. Jeśli zapis jest pusty
+  albo uszkodzony, zwraca null.
+
+  saveAuth bierze token i rekord/model użytkownika z odpowiedzi PocketBase,
+  zapisuje je w localStorage i zwraca obiekt logowania.
+
+  readResponse przetwarza odpowiedź HTTP. Próbuje odczytać JSON, zamienia błędy
+  pól formularza na tekst, dodaje kod HTTP i zwraca zrozumiały błąd dla
+  niepoprawnego e-maila lub hasła. Przy poprawnej odpowiedzi zwraca jej dane.
+
+  login trimuje spacje wokół e-maila i wysyła POST na auth-with-password.
+  PocketBase oczekuje pól identity i password. Po sukcesie zapisuje token.
+
+  register wysyła POST nowego rekordu users wraz z passwordConfirm oraz
+  czyTechnik ustawionym na false. Po utworzeniu konta wywołuje login.
+
+  logout usuwa wpis AUTH_KEY z localStorage.
+
+  pocketBaseFetch jest wspólną funkcją HTTP. Pobiera token, dodaje nagłówek
+  Authorization, wysyła żądanie do POCKETBASE_URL, parsuje JSON, zgłasza błąd
+  przy niepowodzeniu i zwraca dane.
+
+  fetchAllRecords pobiera rekordy stronami po 200. URLSearchParams bezpiecznie
+  składa parametry page, perPage i sort. Opcjonalny filter ogranicza wyniki.
+  Pętla kończy się, gdy pobrano wszystkie strony. Funkcja jest używana przez
+  panele zamiast pobrania tylko pierwszych rekordów.
+
+src/lib/utils.js
+  Ponownie eksportuje funkcję cn z pakietu cn, żeby pozostałe pliki mogły
+  korzystać z jednego lokalnego punktu importu, gdy tego potrzebują.
+
+11. CO UPROSZCZONO
+------------------
+
+  - Operatory warunkowe w postaci "warunek ? wartośćA : wartośćB" w kodzie src/
+    zastąpiono zwykłymi instrukcjami if/else albo prostymi funkcjami z if.
+    Dzięki temu osoba początkująca może łatwiej prześledzić wybór ścieżki.
+  - W panelach użytkownika i technika wybranie stanu strony (ładowanie, pusta
+    lista albo zawartość) odbywa się w bloku if/else przed zwróceniem JSX.
+  - W tabeli technika krótki wiersz z komentarzem i polem Textarea zapisuje się
+    w mniejszej liczbie wierszy. Każdy atrybut i handler nadal ma tę samą rolę.
+  - Strony logowania i rejestracji zwracają komponent bez zbędnych wieloliniowych
+    nawiasów, a etykiety przycisków wybierane są prostymi warunkami.
+  - Kontrola roli w ProtectedPanel używa porównania dwóch wartości logicznych,
+    a adres przekierowania ustawia instrukcją if.
+  - Usunięto nieużywane importy React z kilku prostych adapterów UI. React
+    przetwarza JSX przez automatyczny runtime, więc import nie był potrzebny.
+
+  Nie zmieniano klas stylów, nazw pól API, kolejności operacji ani zachowania
+  formularzy. Adaptery UI pozostawiono jako adaptery: ich klasy Tailwind określają
+  wygląd i stany dostępności. Komponenty, w których nie było operatora warunkowego
+  ani zbędnej składni, nie przepisywano tylko po to, aby zmienić formatowanie.
+
+12. BAZA POCKETBASE I DALSZE ZMIANY
+----------------------------------
+
+  Wymagane pola kolekcji issues, dozwolone wartości, limit zdjęcia oraz reguły
+  dostępu są opisane w README.md w sekcji "Konfiguracja PocketBase dla zgłoszeń".
+  Jeśli zmienisz nazwę pola w bazie, zaktualizuj również miejsca odczytu i zapisu
+  w user.jsx, tech.jsx, issue-options.js oraz pocketbase.js.
+
+  Najbezpieczniej zmieniać po jednym obszarze, a następnie uruchomić:
+    npm run lint
+    npm run build
+
+  Build sprawdza, czy Next.js potrafi przygotować aplikację. Lint sprawdza
+  problemy ze stylem i część błędów kodu. Żadne z tych poleceń nie zastępuje
+  sprawdzenia działania PocketBase i reguł dostępu na właściwej bazie.
