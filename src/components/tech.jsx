@@ -61,10 +61,7 @@ function zastosujZdarzenieZgloszenia(rekordy, zdarzenie) {
 function pobierzSzkicKomentarza(zgloszenie, szkiceKomentarzy) {
     const szkic = szkiceKomentarzy[zgloszenie.id];
     if (szkic !== undefined && szkic !== null) return szkic;
-    if (
-        zgloszenie.komentarz !== undefined &&
-        zgloszenie.komentarz !== null
-    ) {
+    if (zgloszenie.komentarz !== undefined && zgloszenie.komentarz !== null) {
         return zgloszenie.komentarz;
     }
 
