@@ -44,7 +44,7 @@ export default function TechLayout({
 				savedTheme = "dark";
 			}
 		} catch {
-			// Motyw nadal działa w bieżącym widoku.
+		
 		}
 		document.documentElement.dataset.theme = savedTheme;
 		window.dispatchEvent(new Event(THEME_EVENT));
@@ -62,7 +62,6 @@ export default function TechLayout({
 		try {
 			localStorage.setItem(THEME_KEY, nextTheme);
 		} catch {
-			// Motyw nadal działa w bieżącym widoku.
 		}
 		window.dispatchEvent(new Event(THEME_EVENT));
 	};
