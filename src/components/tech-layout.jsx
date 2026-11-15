@@ -2,19 +2,19 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 
-const THEME_KEY = "helpdesk-theme";
-const THEME_EVENT = "helpdesk-theme-change";
+const KLUCZ_MOTYWU = "helpdesk-theme";
+const ZDARZENIE_ZMIANY_MOTYWU = "helpdesk-theme-change";
 
-function subscribeToTheme(callback) {
-	window.addEventListener(THEME_EVENT, callback);
-	window.addEventListener("storage", callback);
+function subskrybujZmianeMotywu(funkcjaZwrotna) {
+	window.addEventListener(ZDARZENIE_ZMIANY_MOTYWU, funkcjaZwrotna);
+	window.addEventListener("storage", funkcjaZwrotna);
 	return () => {
-		window.removeEventListener(THEME_EVENT, callback);
-		window.removeEventListener("storage", callback);
+		window.removeEventListener(ZDARZENIE_ZMIANY_MOTYWU, funkcjaZwrotna);
+		window.removeEventListener("storage", funkcjaZwrotna);
 	};
 }
 
-function getThemeSnapshot() {
+function pobierzBiezacyMotyw() {
 	if (document.documentElement.dataset.theme === "dark") {
 		return "dark";
 	}
@@ -22,59 +22,63 @@ function getThemeSnapshot() {
 	return "light";
 }
 
-function getServerThemeSnapshot() {
+function pobierzMotywSerwera() {
 	return "light";
 }
 
-export default function TechLayout({
-	eyebrow = "Przestrzeń robocza",
-	brandSubtitle = "Panel techniczny",
-	title,
-	subtitle,
-	sectionTitle,
-	sectionMeta = "Panel roboczy",
-	children,
+export default function UkladPanelu({
+	nadtytul = "Przestrzeń robocza",
+	podtytulMarki = "Panel techniczny",
+	tytul,
+	podtytul,
+	tytulSekcji,
+	metadaneSekcji = "Panel roboczy",
+	children: zawartosc,
 }) {
-	const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
+	const motyw = useSyncExternalStore(
+		subskrybujZmianeMotywu,
+		pobierzBiezacyMotyw,
+		pobierzMotywSerwera
+	);
 
 	useEffect(() => {
-		let savedTheme = "light";
+		let zapisanyMotyw = "light";
 		try {
-			if (localStorage.getItem(THEME_KEY) === "dark") {
-				savedTheme = "dark";
+			if (localStorage.getItem(KLUCZ_MOTYWU) === "dark") {
+				zapisanyMotyw = "dark";
 			}
 		} catch {
 		
 		}
-		document.documentElement.dataset.theme = savedTheme;
-		window.dispatchEvent(new Event(THEME_EVENT));
+		document.documentElement.dataset.theme = zapisanyMotyw;
+		window.dispatchEvent(new Event(ZDARZENIE_ZMIANY_MOTYWU));
 	}, []);
 
-	const toggleTheme = () => {
-		let nextTheme;
-		if (theme === "light") {
-			nextTheme = "dark";
+	const przelaczMotyw = () => {
+		let nastepnyMotyw;
+		if (motyw === "light") {
+			nastepnyMotyw = "dark";
 		} else {
-			nextTheme = "light";
+			nastepnyMotyw = "light";
 		}
 
-		document.documentElement.dataset.theme = nextTheme;
+		document.documentElement.dataset.theme = nastepnyMotyw;
 		try {
-			localStorage.setItem(THEME_KEY, nextTheme);
+			localStorage.setItem(KLUCZ_MOTYWU, nastepnyMotyw);
 		} catch {
 		}
-		window.dispatchEvent(new Event(THEME_EVENT));
+		window.dispatchEvent(new Event(ZDARZENIE_ZMIANY_MOTYWU));
 	};
 
-	let themeIcon = "☾";
-	let themeButtonLabel = "Tryb ciemny";
-	if (theme === "dark") {
-		themeIcon = "☀";
-		themeButtonLabel = "Tryb jasny";
+	let ikonaMotywu = "☾";
+	let etykietaPrzyciskuMotywu = "Tryb ciemny";
+	if (motyw === "dark") {
+		ikonaMotywu = "☀";
+		etykietaPrzyciskuMotywu = "Tryb jasny";
 	}
 
 	return (
-		<main className="tech-page" data-theme={theme}>
+		<main className="tech-page" data-theme={motyw}>
 			<style>{`
 				.tech-page{--bg:#f4f6fb;--surface:#fff;--text:#192238;--muted:#758096;--line:#e7eaf1;--accent:#655be8;--background:var(--bg);--foreground:var(--text);--card:var(--surface);--card-foreground:var(--text);--popover:var(--surface);--popover-foreground:var(--text);--input:var(--line);--border:var(--line);--ring:var(--accent);--primary:var(--accent);--primary-foreground:#fff;--secondary:var(--line);--secondary-foreground:var(--text);--muted-foreground:var(--muted);--color-muted:var(--line);--color-accent:color-mix(in srgb,var(--accent) 12%,var(--surface));--color-accent-foreground:var(--text);color-scheme:light;min-height:100vh;padding:28px clamp(18px,5vw,72px);color:var(--text);background:radial-gradient(ellipse at 12% 0%,#e9e7ff 0,transparent 36%),radial-gradient(ellipse at 100% 20%,#e4f5f2 0,transparent 30%),var(--bg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;transition:background .2s,color .2s}
 				.tech-page[data-theme="dark"]{--bg:#10131d;--surface:#1b2030;--text:#f2f4fb;--muted:#9ba5ba;--line:#30374a;--accent:#aaa1ff;color-scheme:dark;background:radial-gradient(ellipse at 12% 0%,#29264c 0,transparent 36%),radial-gradient(ellipse at 100% 20%,#173b3b 0,transparent 30%),var(--bg)}
@@ -86,19 +90,19 @@ export default function TechLayout({
 			`}</style>
 			<div className="tech-shell">
 				<header className="tech-topbar">
-					<div className="tech-brand"><span className="tech-mark" aria-hidden="true">✦</span><span>Helpdesk<small>{brandSubtitle}</small></span></div>
-					<button className="tech-toggle" type="button" onClick={toggleTheme}>
-						<span aria-hidden="true">{themeIcon}</span>{themeButtonLabel}
+					<div className="tech-brand"><span className="tech-mark" aria-hidden="true">✦</span><span>Helpdesk<small>{podtytulMarki}</small></span></div>
+					<button className="tech-toggle" type="button" onClick={przelaczMotyw}>
+						<span aria-hidden="true">{ikonaMotywu}</span>{etykietaPrzyciskuMotywu}
 					</button>
 				</header>
 				<section className="tech-heading">
-					<p className="tech-eyebrow">{eyebrow}</p>
-					<h1>{title}</h1>
-					<p className="tech-subtitle">{subtitle}</p>
+					<p className="tech-eyebrow">{nadtytul}</p>
+					<h1>{tytul}</h1>
+					<p className="tech-subtitle">{podtytul}</p>
 				</section>
-				<section className="tech-card" aria-label={sectionTitle}>
-					<div className="tech-card-header"><h2>{sectionTitle}</h2><span>{sectionMeta}</span></div>
-					<div className="tech-content">{children}</div>
+				<section className="tech-card" aria-label={tytulSekcji}>
+					<div className="tech-card-header"><h2>{tytulSekcji}</h2><span>{metadaneSekcji}</span></div>
+					<div className="tech-content">{zawartosc}</div>
 				</section>
 			</div>
 		</main>

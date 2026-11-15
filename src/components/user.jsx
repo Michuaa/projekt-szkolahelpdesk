@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import TechLayout from "@/components/tech-layout";
+import UkladPanelu from "@/components/tech-layout";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -16,178 +16,296 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-    fetchAllRecords,
-    getSavedAuth,
-    logout,
-    pocketBaseFetch,
-    POCKETBASE_URL,
+    pobierzWszystkieRekordy,
+    pobierzZapisaneUwierzytelnienie,
+    pobierzKlientaPocketBase,
+    wylogujUzytkownika,
+    wykonajZapytaniePocketBase,
+    ADRES_POCKETBASE,
 } from "@/lib/pocketbase";
 import {
-    ISSUE_CATEGORIES,
-    ISSUE_PRIORITIES,
-    ISSUE_ROOMS,
-    ISSUE_STATUS_LABELS,
+    KATEGORIE_ZGLOSZEN,
+    PRIORYTETY_ZGLOSZEN,
+    NUMERY_SAL,
+    ETYKIETY_STATUSOW,
 } from "@/lib/issue-options";
 
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAKSYMALNY_ROZMIAR_ZDJECIA = 5 * 1024 * 1024;
 
-const themeCardStyle = {
+const stylKartyMotywu = {
     backgroundColor: "var(--surface)",
     borderColor: "var(--line)",
     color: "var(--text)",
 };
 
-const selectClassName =
+const klasaWyboru =
     "h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground";
 
-function getTicketImageUrl(record) {
-    if (!record.zdjecie) return null;
+function pobierzAdresZdjecia(zgloszenie, tokenPliku) {
+    if (!zgloszenie.zdjecie || !ADRES_POCKETBASE || !tokenPliku) return null;
 
-    return `${POCKETBASE_URL}/api/files/issues/${record.id}/${encodeURIComponent(record.zdjecie)}`;
+    return `${ADRES_POCKETBASE}/api/files/issues/${zgloszenie.id}/${encodeURIComponent(zgloszenie.zdjecie)}?token=${encodeURIComponent(tokenPliku)}`;
 }
 
-function getTicketStatus(status) {
-    if (ISSUE_STATUS_LABELS[status]) return ISSUE_STATUS_LABELS[status];
+function zastosujZdarzenieZgloszenia(zgloszenia, zdarzenie) {
+    if (zdarzenie.action === "delete") {
+        return zgloszenia.filter(
+            (zgloszenie) => zgloszenie.id !== zdarzenie.record.id
+        );
+    }
+
+    const zaktualizowaneZgloszenie = przeksztalcZgloszenie(zdarzenie.record);
+    const indeksIstniejacego = zgloszenia.findIndex(
+        (zgloszenie) => zgloszenie.id === zaktualizowaneZgloszenie.id
+    );
+    if (indeksIstniejacego === -1) {
+        return [zaktualizowaneZgloszenie, ...zgloszenia];
+    }
+
+    return zgloszenia.map((zgloszenie) =>
+        zgloszenie.id === zaktualizowaneZgloszenie.id
+            ? zaktualizowaneZgloszenie
+            : zgloszenie
+    );
+}
+
+function pobierzEtykieteStatusu(status) {
+    if (ETYKIETY_STATUSOW[status]) return ETYKIETY_STATUSOW[status];
     return status;
 }
 
-function mapTicket(record) {
+function przeksztalcZgloszenie(rekord) {
     let status = "nowe";
-    if (record.status) status = record.status;
+    if (rekord.status) status = rekord.status;
 
-    let comment = "";
-    if (record.komentarz) comment = record.komentarz;
+    let komentarz = "";
+    if (rekord.komentarz) komentarz = rekord.komentarz;
 
     return {
-        id: record.id,
-        title: record.tytul,
-        description: record.opis,
-        room: record.sala,
-        category: record.kategoria,
-        priority: record.priorytet,
+        id: rekord.id,
+        tytul: rekord.tytul,
+        opis: rekord.opis,
+        sala: rekord.sala,
+        kategoria: rekord.kategoria,
+        priorytet: rekord.priorytet,
         status,
-        comment,
-        imageUrl: getTicketImageUrl(record),
+        komentarz,
+        nazwaZdjecia: rekord.zdjecie,
     };
 }
 
-export default function User() {
-    const router = useRouter();
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [tickets, setTickets] = useState([]);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState("");
+export default function PanelUzytkownika() {
+    const nawigator = useRouter();
+    const [czyFormularzOtwarty, ustawCzyFormularzOtwarty] = useState(false);
+    const [zgloszenia, ustawZgloszenia] = useState([]);
+    const [czyWysylanie, ustawCzyWysylanie] = useState(false);
+    const [czyLaduje, ustawCzyLaduje] = useState(true);
+    const [komunikatBledu, ustawKomunikatBledu] = useState("");
+    const [tokenPliku, ustawTokenPliku] = useState("");
 
     useEffect(() => {
-        const userId = getSavedAuth()?.user?.id;
+        let czyAktualny = true;
 
-        async function loadTickets() {
+        pobierzKlientaPocketBase()
+            .files.getToken()
+            .then((tokenPlikuOdpowiedzi) => {
+                if (czyAktualny) ustawTokenPliku(tokenPlikuOdpowiedzi);
+            })
+            .catch((blad) => {
+                if (czyAktualny) {
+                    ustawKomunikatBledu(
+                        blad.message || "Nie udało się uzyskać dostępu do zdjęć."
+                    );
+                }
+            });
+
+        return () => {
+            czyAktualny = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let czyAktualny = true;
+        let czyWstepneDaneGotowe = false;
+        let anulujSubskrypcje;
+        const zdarzeniaPodczasLadowania = new Map();
+        const idUzytkownika = pobierzZapisaneUwierzytelnienie()?.user?.id;
+
+        const subskrypcja = pobierzKlientaPocketBase()
+            .collection("issues")
+            .subscribe("*", (zdarzenie) => {
+                if (!czyAktualny) return;
+                if (!czyWstepneDaneGotowe) {
+                    zdarzeniaPodczasLadowania.set(
+                        zdarzenie.record.id,
+                        zdarzenie
+                    );
+                    return;
+                }
+                ustawZgloszenia((aktualneZgloszenia) =>
+                    zastosujZdarzenieZgloszenia(
+                        aktualneZgloszenia,
+                        zdarzenie
+                    )
+                );
+            })
+            .then((zatrzymajSubskrypcje) => {
+                if (!czyAktualny) {
+                    zatrzymajSubskrypcje();
+                    return;
+                }
+                anulujSubskrypcje = zatrzymajSubskrypcje;
+            })
+            .catch((blad) => {
+                if (czyAktualny) {
+                    ustawKomunikatBledu(
+                        blad.message ||
+                            "Nie udało się uruchomić aktualizacji realtime."
+                    );
+                }
+            });
+
+        async function zaladujZgloszenia() {
             try {
-                if (!userId) {
+                if (!idUzytkownika) {
                     throw new Error(
                         "Nie udało się odczytać zalogowanego użytkownika. Zaloguj się ponownie."
                     );
                 }
 
-                const records = await fetchAllRecords(
-                    "issues",
-                    `uzytkownik = "${userId}"`
-                );
-                setTickets(records.map(mapTicket));
-            } catch (err) {
-                let message = "Nie udało się pobrać zgłoszeń.";
-                if (err.message) message = err.message;
-                setError(message);
+                const rekordy = await Promise.all([
+                    pobierzWszystkieRekordy(
+                        "issues",
+                        `uzytkownik = "${idUzytkownika}"`
+                    ),
+                    subskrypcja,
+                ]).then(([elementy]) => elementy);
+                if (!czyAktualny) return;
+
+                let aktualneZgloszenia = rekordy.map(przeksztalcZgloszenie);
+                for (const zdarzenie of zdarzeniaPodczasLadowania.values()) {
+                    aktualneZgloszenia = zastosujZdarzenieZgloszenia(
+                        aktualneZgloszenia,
+                        zdarzenie
+                    );
+                }
+
+                czyWstepneDaneGotowe = true;
+                ustawZgloszenia(aktualneZgloszenia);
+            } catch (blad) {
+                let komunikat = "Nie udało się pobrać zgłoszeń.";
+                if (blad.message) komunikat = blad.message;
+                if (czyAktualny) ustawKomunikatBledu(komunikat);
             } finally {
-                setIsLoading(false);
+                if (czyAktualny) ustawCzyLaduje(false);
             }
         }
 
-        loadTickets();
+        zaladujZgloszenia();
+
+        return () => {
+            czyAktualny = false;
+            if (anulujSubskrypcje) anulujSubskrypcje();
+        };
     }, []);
 
-    function handleLogout() {
-        logout();
-        router.replace("/");
+    function obsluzWylogowanie() {
+        wylogujUzytkownika();
+        nawigator.replace("/");
     }
 
-    async function handleSubmit(event) {
-        event.preventDefault();
+    async function obsluzWyslanieFormularza(zdarzenie) {
+        zdarzenie.preventDefault();
 
-        const form = event.currentTarget;
-        const input = new FormData(form);
-        const image = input.get("zdjecie");
-        const userId = getSavedAuth()?.user?.id;
+        const formularz = zdarzenie.currentTarget;
+        const daneFormularza = new FormData(formularz);
+        const zdjecie = daneFormularza.get("zdjecie");
+        const idUzytkownika = pobierzZapisaneUwierzytelnienie()?.user?.id;
 
-        if (!userId) {
-            setError(
+        if (!idUzytkownika) {
+            ustawKomunikatBledu(
                 "Nie udało się odczytać zalogowanego użytkownika. Zaloguj się ponownie."
             );
             return;
         }
 
-        if (image instanceof File && image.size > 0) {
-            if (!image.type.startsWith("image/")) {
-                setError("Do zgłoszenia można dołączyć tylko plik graficzny.");
+        if (zdjecie instanceof File && zdjecie.size > 0) {
+            if (!zdjecie.type.startsWith("image/")) {
+                ustawKomunikatBledu(
+                    "Do zgłoszenia można dołączyć tylko plik graficzny."
+                );
                 return;
             }
-            if (image.size > MAX_IMAGE_SIZE) {
-                setError("Zdjęcie nie może być większe niż 5 MB.");
+            if (zdjecie.size > MAKSYMALNY_ROZMIAR_ZDJECIA) {
+                ustawKomunikatBledu("Zdjęcie nie może być większe niż 5 MB.");
                 return;
             }
         }
 
-        const data = new FormData();
-        data.append("tytul", input.get("tytul"));
-        data.append("opis", input.get("opis"));
-        data.append("sala", input.get("sala"));
-        data.append("kategoria", input.get("kategoria"));
-        data.append("priorytet", input.get("priorytet"));
-        data.append("status", "nowe");
-        data.append("uzytkownik", userId);
+        const daneZgloszenia = new FormData();
+        daneZgloszenia.append("tytul", daneFormularza.get("tytul"));
+        daneZgloszenia.append("opis", daneFormularza.get("opis"));
+        daneZgloszenia.append("sala", daneFormularza.get("sala"));
+        daneZgloszenia.append("kategoria", daneFormularza.get("kategoria"));
+        daneZgloszenia.append("priorytet", daneFormularza.get("priorytet"));
+        daneZgloszenia.append("status", "nowe");
+        daneZgloszenia.append("uzytkownik", idUzytkownika);
 
-        if (image instanceof File && image.size > 0) {
-            data.append("zdjecie", image);
+        if (zdjecie instanceof File && zdjecie.size > 0) {
+            daneZgloszenia.append("zdjecie", zdjecie);
         }
 
-        setIsSubmitting(true);
-        setError("");
+        ustawCzyWysylanie(true);
+        ustawKomunikatBledu("");
 
         try {
-            const record = await pocketBaseFetch(
+            const rekord = await wykonajZapytaniePocketBase(
                 "/api/collections/issues/records",
                 {
                     method: "POST",
-                    body: data,
+                    body: daneZgloszenia,
                 }
             );
 
-            setTickets((current) => [mapTicket(record), ...current]);
-            form.reset();
-            setIsFormOpen(false);
-        } catch (err) {
-            let message = "Nie udało się wysłać zgłoszenia.";
-            if (err.message) message = err.message;
-            setError(message);
+            ustawZgloszenia((aktualneZgloszenia) => {
+                const noweZgloszenie = przeksztalcZgloszenie(rekord);
+                if (
+                    aktualneZgloszenia.some(
+                        (zgloszenie) => zgloszenie.id === noweZgloszenie.id
+                    )
+                ) {
+                    return aktualneZgloszenia.map((zgloszenie) =>
+                        zgloszenie.id === noweZgloszenie.id
+                            ? noweZgloszenie
+                            : zgloszenie
+                    );
+                }
+                return [noweZgloszenie, ...aktualneZgloszenia];
+            });
+            formularz.reset();
+            ustawCzyFormularzOtwarty(false);
+        } catch (blad) {
+            let komunikat = "Nie udało się wysłać zgłoszenia.";
+            if (blad.message) komunikat = blad.message;
+            ustawKomunikatBledu(komunikat);
         } finally {
-            setIsSubmitting(false);
+            ustawCzyWysylanie(false);
         }
     }
 
-    let formButtonLabel = "DODAJ ZGŁOSZENIE";
-    if (isFormOpen) formButtonLabel = "ANULUJ";
+    let etykietaPrzyciskuFormularza = "DODAJ ZGŁOSZENIE";
+    if (czyFormularzOtwarty) etykietaPrzyciskuFormularza = "ANULUJ";
 
-    let submitButtonLabel = "Wyślij zgłoszenie";
-    if (isSubmitting) submitButtonLabel = "Wysyłanie...";
+    let etykietaPrzyciskuWysylania = "Wyślij zgłoszenie";
+    if (czyWysylanie) etykietaPrzyciskuWysylania = "Wysyłanie...";
 
-    let ticketContent;
-    if (isLoading) {
-        ticketContent = (
+    let zawartoscZgloszen;
+    if (czyLaduje) {
+        zawartoscZgloszen = (
             <p style={{ color: "var(--muted)" }}>Ładowanie zgłoszeń...</p>
         );
-    } else if (tickets.length === 0 && !isFormOpen) {
-        ticketContent = (
+    } else if (zgloszenia.length === 0 && !czyFormularzOtwarty) {
+        zawartoscZgloszen = (
             <div className="tech-placeholder">
                 <div>
                     <div className="tech-placeholder-icon" aria-hidden="true">
@@ -199,30 +317,42 @@ export default function User() {
             </div>
         );
     } else {
-        ticketContent = (
+        zawartoscZgloszen = (
             <div className="grid gap-4">
-                {tickets.map((ticket) => (
-                    <Card key={ticket.id} style={themeCardStyle}>
+                {zgloszenia.map((zgloszenie) => (
+                    <Card key={zgloszenie.id} style={stylKartyMotywu}>
                         <CardHeader>
-                            <CardTitle>{ticket.title}</CardTitle>
+                            <CardTitle>{zgloszenie.tytul}</CardTitle>
                             <CardDescription style={{ color: "var(--muted)" }}>
-                                Sala {ticket.room} · {ticket.category} · Priorytet: {ticket.priority}
+                                Sala {zgloszenie.sala} · {zgloszenie.kategoria} · Priorytet: {zgloszenie.priorytet}
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-3">
-                            <p className="whitespace-pre-wrap">{ticket.description}</p>
+                            <p className="whitespace-pre-wrap">{zgloszenie.opis}</p>
                             <p className="text-sm font-medium">
-                                Status: {getTicketStatus(ticket.status)}
+                                Status: {pobierzEtykieteStatusu(zgloszenie.status)}
                             </p>
-                            {ticket.comment && (
+                            {zgloszenie.komentarz && (
                                 <p className="text-sm">
-                                    Komentarz technika: {ticket.comment}
+                                    Komentarz technika: {zgloszenie.komentarz}
                                 </p>
                             )}
-                            {ticket.imageUrl && (
+                            {pobierzAdresZdjecia(
+                                {
+                                    id: zgloszenie.id,
+                                    zdjecie: zgloszenie.nazwaZdjecia,
+                                },
+                                tokenPliku
+                            ) && (
                                 <Image
-                                    src={ticket.imageUrl}
-                                    alt={`Zdjęcie do zgłoszenia: ${ticket.title}`}
+                                    src={pobierzAdresZdjecia(
+                                        {
+                                            id: zgloszenie.id,
+                                            zdjecie: zgloszenie.nazwaZdjecia,
+                                        },
+                                        tokenPliku
+                                    )}
+                                    alt={`Zdjęcie do zgłoszenia: ${zgloszenie.tytul}`}
                                     width={960}
                                     height={720}
                                     unoptimized
@@ -238,21 +368,21 @@ export default function User() {
     }
 
     return (
-        <TechLayout
-            brandSubtitle="Panel użytkownika"
-            title="Zgłoszenia"
-            subtitle="Przestrzeń użytkownika"
-            sectionTitle="Moje zgłoszenia"
+        <UkladPanelu
+            podtytulMarki="Panel użytkownika"
+            tytul="Zgłoszenia"
+            podtytul="Przestrzeń użytkownika"
+            tytulSekcji="Moje zgłoszenia"
         >
             <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
                 <Button
                     type="button"
                     onClick={() => {
-                        setIsFormOpen((open) => !open);
-                        setError("");
+                        ustawCzyFormularzOtwarty((czyOtwarty) => !czyOtwarty);
+                        ustawKomunikatBledu("");
                     }}
                 >
-                    {formButtonLabel}
+                    {etykietaPrzyciskuFormularza}
                 </Button>
 
                 <Button
@@ -263,14 +393,14 @@ export default function User() {
                         borderColor: "var(--line)",
                         color: "var(--text)",
                     }}
-                    onClick={handleLogout}
+                    onClick={obsluzWylogowanie}
                 >
                     Wyloguj się
                 </Button>
             </div>
 
-            {isFormOpen && (
-                <Card className="mb-6" style={themeCardStyle}>
+            {czyFormularzOtwarty && (
+                <Card className="mb-6" style={stylKartyMotywu}>
                     <CardHeader>
                         <CardTitle>Nowe zgłoszenie</CardTitle>
                         <CardDescription style={{ color: "var(--muted)" }}>
@@ -278,7 +408,7 @@ export default function User() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form className="grid gap-5" onSubmit={handleSubmit}>
+                        <form className="grid gap-5" onSubmit={obsluzWyslanieFormularza}>
                             <div className="grid gap-2">
                                 <Label htmlFor="tytul">Tytuł</Label>
                                 <Input
@@ -304,16 +434,16 @@ export default function User() {
                                 <select
                                     id="sala"
                                     name="sala"
-                                    className={selectClassName}
+                                    className={klasaWyboru}
                                     defaultValue=""
                                     required
                                 >
                                     <option value="" disabled>
                                         Wybierz salę
                                     </option>
-                                    {ISSUE_ROOMS.map((room) => (
-                                        <option key={room} value={room}>
-                                            {room}
+                                    {NUMERY_SAL.map((sala) => (
+                                        <option key={sala} value={sala}>
+                                            {sala}
                                         </option>
                                     ))}
                                 </select>
@@ -324,16 +454,16 @@ export default function User() {
                                 <select
                                     id="kategoria"
                                     name="kategoria"
-                                    className={selectClassName}
+                                    className={klasaWyboru}
                                     defaultValue=""
                                     required
                                 >
                                     <option value="" disabled>
                                         Wybierz kategorię
                                     </option>
-                                    {ISSUE_CATEGORIES.map((category) => (
-                                        <option key={category} value={category}>
-                                            {category}
+                                    {KATEGORIE_ZGLOSZEN.map((kategoria) => (
+                                        <option key={kategoria} value={kategoria}>
+                                            {kategoria}
                                         </option>
                                     ))}
                                 </select>
@@ -344,16 +474,16 @@ export default function User() {
                                 <select
                                     id="priorytet"
                                     name="priorytet"
-                                    className={selectClassName}
+                                    className={klasaWyboru}
                                     defaultValue=""
                                     required
                                 >
                                     <option value="" disabled>
                                         Wybierz priorytet
                                     </option>
-                                    {ISSUE_PRIORITIES.map((priority) => (
-                                        <option key={priority} value={priority}>
-                                            {priority}
+                                    {PRIORYTETY_ZGLOSZEN.map((priorytet) => (
+                                        <option key={priorytet} value={priorytet}>
+                                            {priorytet}
                                         </option>
                                     ))}
                                 </select>
@@ -371,27 +501,27 @@ export default function User() {
                                 />
                             </div>
 
-                            {error && (
+                            {komunikatBledu && (
                                 <p role="alert" className="text-sm text-red-600">
-                                    {error}
+                                    {komunikatBledu}
                                 </p>
                             )}
 
-                            <Button type="submit" disabled={isSubmitting}>
-                                {submitButtonLabel}
+                            <Button type="submit" disabled={czyWysylanie}>
+                                {etykietaPrzyciskuWysylania}
                             </Button>
                         </form>
                     </CardContent>
                 </Card>
             )}
 
-            {!isFormOpen && error && (
+            {!czyFormularzOtwarty && komunikatBledu && (
                 <p role="alert" className="mb-4 text-sm text-red-600">
-                    {error}
+                    {komunikatBledu}
                 </p>
             )}
 
-            {ticketContent}
-        </TechLayout>
+            {zawartoscZgloszen}
+        </UkladPanelu>
     );
 }

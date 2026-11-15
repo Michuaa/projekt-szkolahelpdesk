@@ -3,48 +3,48 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import TechLayout from "@/components/tech-layout";
-import { login } from "@/lib/pocketbase";
+import UkladPanelu from "@/components/tech-layout";
+import { zalogujUzytkownika } from "@/lib/pocketbase";
 
 export default function Logowanie() {
-    const router = useRouter();
-    const [error, setError] = useState("");
-    const [busy, setBusy] = useState(false);
+    const nawigator = useRouter();
+    const [komunikatBledu, ustawKomunikatBledu] = useState("");
+    const [czyTrwaLogowanie, ustawCzyTrwaLogowanie] = useState(false);
 
-    async function handleSubmit(event) {
-        event.preventDefault();
-        setBusy(true);
-        setError("");
+    async function obsluzWyslanieFormularza(zdarzenie) {
+        zdarzenie.preventDefault();
+        ustawCzyTrwaLogowanie(true);
+        ustawKomunikatBledu("");
 
-        const formData = new FormData(event.currentTarget);
+        const daneFormularza = new FormData(zdarzenie.currentTarget);
 
         try {
-            const auth = await login(
-                formData.get("email"),
-                formData.get("password")
+            const uwierzytelnienie = await zalogujUzytkownika(
+                daneFormularza.get("email"),
+                daneFormularza.get("password")
             );
-            if (auth.user.czyTechnik) {
-                router.push("/techpanel");
+            if (uwierzytelnienie.user.czyTechnik) {
+                nawigator.push("/techpanel");
             } else {
-                router.push("/userpanel");
+                nawigator.push("/userpanel");
             }
-        } catch (err) {
-            setError(err.message);
+        } catch (blad) {
+            ustawKomunikatBledu(blad.message);
         } finally {
-            setBusy(false);
+            ustawCzyTrwaLogowanie(false);
         }
     }
 
     return (
-        <TechLayout
-            brandSubtitle="Dostęp do systemu"
-            eyebrow="Witaj ponownie"
-            title="Zaloguj się"
-            subtitle="Panel szkolnego helpdesku"
-            sectionTitle="Dane logowania"
-            sectionMeta="Konto użytkownika"
+        <UkladPanelu
+            podtytulMarki="Dostęp do systemu"
+            nadtytul="Witaj ponownie"
+            tytul="Zaloguj się"
+            podtytul="Panel szkolnego helpdesku"
+            tytulSekcji="Dane logowania"
+            metadaneSekcji="Konto użytkownika"
         >
-            <form className="tech-form" onSubmit={handleSubmit}>
+            <form className="tech-form" onSubmit={obsluzWyslanieFormularza}>
                 <label className="tech-field">
                     <span className="tech-label">E-mail</span>
                     <input
@@ -65,14 +65,17 @@ export default function Logowanie() {
                         required
                     />
                 </label>
-                {error && (
+                {komunikatBledu && (
                     <p role="alert" className="tech-form-note">
-                        {error}
+                        {komunikatBledu}
                     </p>
                 )}
-                <button className="tech-static-button" disabled={busy}>
-                    {busy && "Logowanie..."}
-                    {!busy && "Zaloguj się"}
+                <button
+                    className="tech-static-button"
+                    disabled={czyTrwaLogowanie}
+                >
+                    {czyTrwaLogowanie && "Logowanie..."}
+                    {!czyTrwaLogowanie && "Zaloguj się"}
                 </button>
                 <p className="tech-form-note">
                     Nie masz konta?{" "}
@@ -81,6 +84,6 @@ export default function Logowanie() {
                     </Link>
                 </p>
             </form>
-        </TechLayout>
+        </UkladPanelu>
     );
 }

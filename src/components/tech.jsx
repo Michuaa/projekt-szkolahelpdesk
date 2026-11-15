@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import TechLayout from "@/components/tech-layout";
+import UkladPanelu from "@/components/tech-layout";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,148 +15,305 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import {
-    fetchAllRecords,
-    logout,
-    pocketBaseFetch,
-    POCKETBASE_URL,
+    pobierzWszystkieRekordy,
+    pobierzZapisaneUwierzytelnienie,
+    pobierzKlientaPocketBase,
+    wylogujUzytkownika,
+    wykonajZapytaniePocketBase,
+    ADRES_POCKETBASE,
 } from "@/lib/pocketbase";
 import {
-    ISSUE_PRIORITIES,
-    ISSUE_ROOMS,
-    ISSUE_STATUSES,
+    PRIORYTETY_ZGLOSZEN,
+    NUMERY_SAL,
+    STATUSY_ZGLOSZEN,
 } from "@/lib/issue-options";
 
-const filterClassName =
+const klasaFiltrow =
     "h-9 min-w-40 rounded-lg border border-input bg-transparent px-3 text-sm text-foreground";
-const statusClassName =
+const klasaWyboruStatusu =
     "h-9 w-full min-w-36 rounded-lg border border-input bg-transparent px-2 text-sm text-foreground";
 
-function getTicketImageUrl(ticket) {
-    if (!ticket.zdjecie) return null;
+function pobierzAdresZdjecia(zgloszenie, tokenPliku) {
+    if (!zgloszenie.zdjecie || !ADRES_POCKETBASE || !tokenPliku) return null;
 
-    return `${POCKETBASE_URL}/api/files/issues/${ticket.id}/${encodeURIComponent(ticket.zdjecie)}`;
+    return `${ADRES_POCKETBASE}/api/files/issues/${zgloszenie.id}/${encodeURIComponent(zgloszenie.zdjecie)}?token=${encodeURIComponent(tokenPliku)}`;
 }
 
-function getCommentDraft(ticket, commentDrafts) {
-    const draft = commentDrafts[ticket.id];
-    if (draft !== undefined && draft !== null) return draft;
-    if (ticket.komentarz !== undefined && ticket.komentarz !== null) {
-        return ticket.komentarz;
+function zastosujZdarzenieZgloszenia(rekordy, zdarzenie) {
+    if (zdarzenie.action === "delete") {
+        return rekordy.filter(
+            (zgloszenie) => zgloszenie.id !== zdarzenie.record.id
+        );
+    }
+
+    const indeksIstniejacego = rekordy.findIndex(
+        (zgloszenie) => zgloszenie.id === zdarzenie.record.id
+    );
+    if (indeksIstniejacego === -1) {
+        return [zdarzenie.record, ...rekordy];
+    }
+
+    return rekordy.map((zgloszenie) =>
+        zgloszenie.id === zdarzenie.record.id ? zdarzenie.record : zgloszenie
+    );
+}
+
+function pobierzSzkicKomentarza(zgloszenie, szkiceKomentarzy) {
+    const szkic = szkiceKomentarzy[zgloszenie.id];
+    if (szkic !== undefined && szkic !== null) return szkic;
+    if (
+        zgloszenie.komentarz !== undefined &&
+        zgloszenie.komentarz !== null
+    ) {
+        return zgloszenie.komentarz;
     }
 
     return "";
 }
 
-function getTicketStatus(ticket) {
-    if (!ticket.status) return "nowe";
-    return ticket.status;
+function pobierzStatusZgloszenia(zgloszenie) {
+    if (!zgloszenie.status) return "nowe";
+    return zgloszenie.status;
 }
 
-function getTicketComment(ticket) {
-    if (!ticket.komentarz) return "Brak komentarza";
-    return ticket.komentarz;
+function pobierzKomentarzZgloszenia(zgloszenie) {
+    if (!zgloszenie.komentarz) return "Brak komentarza";
+    return zgloszenie.komentarz;
 }
 
-function getSaveButtonLabel(ticketId, busyId) {
-    if (busyId === ticketId) return "Zapisywanie...";
+function pobierzEtykietePrzyciskuZapisu(idZgloszenia, zapisujaceSieId) {
+    if (zapisujaceSieId === idZgloszenia) return "Zapisywanie...";
     return "Zapisz komentarz";
 }
 
-export default function Tech() {
-    const router = useRouter();
-    const [tickets, setTickets] = useState([]);
-    const [statusFilter, setStatusFilter] = useState("");
-    const [roomFilter, setRoomFilter] = useState("");
-    const [priorityFilter, setPriorityFilter] = useState("");
-    const [commentDrafts, setCommentDrafts] = useState({});
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [busyId, setBusyId] = useState("");
+export default function PanelTechnika() {
+    const nawigator = useRouter();
+    const [zgloszenia, ustawZgloszenia] = useState([]);
+    const [filtrStatusu, ustawFiltrStatusu] = useState("");
+    const [filtrSali, ustawFiltrSali] = useState("");
+    const [filtrPriorytetu, ustawFiltrPriorytetu] = useState("");
+    const [szkiceKomentarzy, ustawSzkiceKomentarzy] = useState({});
+    const [czyLaduje, ustawCzyLaduje] = useState(true);
+    const [komunikatBledu, ustawKomunikatBledu] = useState("");
+    const [zapisujaceSieId, ustawZapisujaceSieId] = useState("");
+    const [tokenPliku, ustawTokenPliku] = useState("");
 
-    const loadTickets = useCallback(async () => {
-        try {
-            const records = await fetchAllRecords("issues");
-            setTickets(records);
-        } catch (err) {
-            setError(err.message || "Nie udało się pobrać zgłoszeń.");
-        } finally {
-            setIsLoading(false);
-        }
+    useEffect(() => {
+        let czyAktualny = true;
+
+        pobierzKlientaPocketBase()
+            .files.getToken()
+            .then((tokenPlikuOdpowiedzi) => {
+                if (czyAktualny) ustawTokenPliku(tokenPlikuOdpowiedzi);
+            })
+            .catch((blad) => {
+                if (czyAktualny) {
+                    ustawKomunikatBledu(
+                        blad.message || "Nie udało się uzyskać dostępu do zdjęć."
+                    );
+                }
+            });
+
+        return () => {
+            czyAktualny = false;
+        };
     }, []);
 
     useEffect(() => {
-        Promise.resolve().then(loadTickets);
-    }, [loadTickets]);
+        let czyAktualny = true;
+        let czyWstepneDaneGotowe = false;
+        let anulujSubskrypcje;
+        const zdarzeniaPodczasLadowania = new Map();
 
-    function handleLogout() {
-        logout();
-        router.replace("/");
+        const subskrypcja = pobierzKlientaPocketBase()
+            .collection("issues")
+            .subscribe("*", (zdarzenie) => {
+                if (!czyAktualny) return;
+                if (!czyWstepneDaneGotowe) {
+                    zdarzeniaPodczasLadowania.set(
+                        zdarzenie.record.id,
+                        zdarzenie
+                    );
+                    return;
+                }
+                ustawZgloszenia((aktualneZgloszenia) =>
+                    zastosujZdarzenieZgloszenia(
+                        aktualneZgloszenia,
+                        zdarzenie
+                    )
+                );
+            })
+            .then((zatrzymajSubskrypcje) => {
+                if (!czyAktualny) {
+                    zatrzymajSubskrypcje();
+                    return;
+                }
+                anulujSubskrypcje = zatrzymajSubskrypcje;
+            })
+            .catch((blad) => {
+                if (czyAktualny) {
+                    ustawKomunikatBledu(
+                        blad.message ||
+                            "Nie udało się uruchomić aktualizacji realtime."
+                    );
+                }
+            });
+
+        async function zaladujZgloszenia() {
+            try {
+                const rekordy = await Promise.all([
+                    pobierzWszystkieRekordy("issues"),
+                    subskrypcja,
+                ]).then(([elementy]) => elementy);
+
+                if (!czyAktualny) return;
+
+                let aktualneZgloszenia = rekordy;
+                for (const zdarzenie of zdarzeniaPodczasLadowania.values()) {
+                    aktualneZgloszenia = zastosujZdarzenieZgloszenia(
+                        aktualneZgloszenia,
+                        zdarzenie
+                    );
+                }
+
+                czyWstepneDaneGotowe = true;
+                ustawZgloszenia(aktualneZgloszenia);
+            } catch (blad) {
+                if (czyAktualny) {
+                    ustawKomunikatBledu(
+                        blad.message || "Nie udało się pobrać zgłoszeń."
+                    );
+                }
+            } finally {
+                if (czyAktualny) ustawCzyLaduje(false);
+            }
+        }
+
+        zaladujZgloszenia();
+
+        return () => {
+            czyAktualny = false;
+            if (anulujSubskrypcje) anulujSubskrypcje();
+        };
+    }, []);
+
+    function obsluzWylogowanie() {
+        wylogujUzytkownika();
+        nawigator.replace("/");
     }
 
-    async function updateTicket(ticket, changes) {
-        setBusyId(ticket.id);
-        setError("");
+    async function aktualizujZgloszenie(zgloszenie, zmiany) {
+        ustawZapisujaceSieId(zgloszenie.id);
+        ustawKomunikatBledu("");
+
+        const czyZmienionoStatus =
+            Object.prototype.hasOwnProperty.call(zmiany, "status") &&
+            pobierzStatusZgloszenia(zgloszenie) !== zmiany.status;
+        const idTechnika = czyZmienionoStatus
+            ? pobierzZapisaneUwierzytelnienie()?.user?.id
+            : null;
+
+        if (czyZmienionoStatus && !idTechnika) {
+            ustawKomunikatBledu(
+                "Nie udało się odczytać technika. Zaloguj się ponownie przed zmianą statusu."
+            );
+            ustawZapisujaceSieId("");
+            return;
+        }
 
         try {
-            const updated = await pocketBaseFetch(
-                `/api/collections/issues/records/${ticket.id}`,
+            const zaktualizowaneZgloszenie =
+                await wykonajZapytaniePocketBase(
+                `/api/collections/issues/records/${zgloszenie.id}`,
                 {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(changes),
+                    body: JSON.stringify(zmiany),
                 }
             );
 
-            setTickets((current) =>
-                current.map((item) => {
-                    if (item.id === updated.id) return updated;
-                    return item;
+            ustawZgloszenia((aktualneZgloszenia) =>
+                aktualneZgloszenia.map((zgloszenieNaLiscie) => {
+                    if (zgloszenieNaLiscie.id === zaktualizowaneZgloszenie.id) {
+                        return zaktualizowaneZgloszenie;
+                    }
+                    return zgloszenieNaLiscie;
                 })
             );
 
-            if (Object.prototype.hasOwnProperty.call(changes, "komentarz")) {
-                setCommentDrafts((current) => ({
-                    ...current,
-                    [updated.id]: updated.komentarz || "",
+            if (Object.prototype.hasOwnProperty.call(zmiany, "komentarz")) {
+                ustawSzkiceKomentarzy((aktualneSzkice) => ({
+                    ...aktualneSzkice,
+                    [zaktualizowaneZgloszenie.id]:
+                        zaktualizowaneZgloszenie.komentarz || "",
                 }));
             }
-        } catch (err) {
-            setError(err.message || "Nie udało się zaktualizować zgłoszenia.");
+
+            if (czyZmienionoStatus) {
+                try {
+                    await wykonajZapytaniePocketBase(
+                        "/api/collections/ticket_events/records",
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                issue: zgloszenie.id,
+                                actor: idTechnika,
+                                from_status: pobierzStatusZgloszenia(zgloszenie),
+                                to_status: zmiany.status,
+                            }),
+                        }
+                    );
+                } catch (blad) {
+                    throw new Error(
+                        `Status został zmieniony, ale nie udało się zapisać historii: ${blad.message || "błąd PocketBase"}`
+                    );
+                }
+            }
+        } catch (blad) {
+            ustawKomunikatBledu(
+                blad.message || "Nie udało się zaktualizować zgłoszenia."
+            );
         } finally {
-            setBusyId("");
+            ustawZapisujaceSieId("");
         }
     }
 
-    const visibleTickets = tickets.filter((ticket) => {
-        const status = getTicketStatus(ticket);
-        if (statusFilter && status !== statusFilter) return false;
-        if (roomFilter && String(ticket.sala) !== roomFilter) return false;
-        if (priorityFilter && ticket.priorytet !== priorityFilter) return false;
+    const widoczneZgloszenia = zgloszenia.filter((zgloszenie) => {
+        const statusZgloszenia = pobierzStatusZgloszenia(zgloszenie);
+        if (filtrStatusu && statusZgloszenia !== filtrStatusu) return false;
+        if (filtrSali && String(zgloszenie.sala) !== filtrSali) return false;
+        if (
+            filtrPriorytetu &&
+            zgloszenie.priorytet !== filtrPriorytetu
+        ) {
+            return false;
+        }
         return true;
     });
 
-    let ticketContent;
-    if (isLoading) {
-        ticketContent = (
+    let zawartoscZgloszen;
+    if (czyLaduje) {
+        zawartoscZgloszen = (
             <p style={{ color: "var(--muted)" }}>Ładowanie zgłoszeń...</p>
         );
-    } else if (visibleTickets.length === 0) {
-        let emptyMessage = "Brak zgłoszeń spełniających filtry";
-        if (tickets.length === 0) emptyMessage = "Brak zgłoszeń";
+    } else if (widoczneZgloszenia.length === 0) {
+        let komunikatPustejListy = "Brak zgłoszeń spełniających filtry";
+        if (zgloszenia.length === 0) komunikatPustejListy = "Brak zgłoszeń";
 
-        ticketContent = (
+        zawartoscZgloszen = (
             <div className="tech-placeholder">
                 <div>
                     <div className="tech-placeholder-icon" aria-hidden="true">
                         ✧
                     </div>
-                    <h3>{emptyMessage}</h3>
+                    <h3>{komunikatPustejListy}</h3>
                     <p>Zgłoszenia pojawią się w tym miejscu.</p>
                 </div>
             </div>
         );
     } else {
-        ticketContent = (
+        zawartoscZgloszen = (
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -170,23 +327,33 @@ export default function Tech() {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {visibleTickets.map((ticket) => {
-                        const imageUrl = getTicketImageUrl(ticket);
-                        const commentDraft = getCommentDraft(ticket, commentDrafts);
-                        const comment = getTicketComment(ticket);
-                        const status = getTicketStatus(ticket);
-                        const saveLabel = getSaveButtonLabel(ticket.id, busyId);
+                    {widoczneZgloszenia.map((zgloszenie) => {
+                        const adresZdjecia = pobierzAdresZdjecia(
+                            zgloszenie,
+                            tokenPliku
+                        );
+                        const szkicKomentarza = pobierzSzkicKomentarza(
+                            zgloszenie,
+                            szkiceKomentarzy
+                        );
+                        const komentarz = pobierzKomentarzZgloszenia(zgloszenie);
+                        const statusZgloszenia =
+                            pobierzStatusZgloszenia(zgloszenie);
+                        const etykietaZapisu = pobierzEtykietePrzyciskuZapisu(
+                            zgloszenie.id,
+                            zapisujaceSieId
+                        );
 
                         return (
-                            <TableRow key={ticket.id}>
+                            <TableRow key={zgloszenie.id}>
                                 <TableCell className="min-w-64 whitespace-normal">
-                                    <p className="font-semibold">{ticket.tytul}</p>
+                                    <p className="font-semibold">{zgloszenie.tytul}</p>
                                     <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                                        {ticket.opis}
+                                        {zgloszenie.opis}
                                     </p>
-                                    {imageUrl && (
+                                    {adresZdjecia && (
                                         <a
-                                            href={imageUrl}
+                                            href={adresZdjecia}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="mt-2 inline-block text-sm underline"
@@ -195,55 +362,55 @@ export default function Tech() {
                                         </a>
                                     )}
                                 </TableCell>
-                                <TableCell>{ticket.sala}</TableCell>
-                                <TableCell className="whitespace-normal">{ticket.kategoria}</TableCell>
-                                <TableCell>{ticket.priorytet}</TableCell>
+                                <TableCell>{zgloszenie.sala}</TableCell>
+                                <TableCell className="whitespace-normal">{zgloszenie.kategoria}</TableCell>
+                                <TableCell>{zgloszenie.priorytet}</TableCell>
                                 <TableCell className="min-w-40">
                                     <select
-                                        aria-label={`Status zgłoszenia: ${ticket.tytul}`}
-                                        className={statusClassName}
-                                        value={status}
-                                        disabled={busyId === ticket.id}
-                                        onChange={(event) =>
-                                            updateTicket(ticket, {
-                                                status: event.target.value,
+                                        aria-label={`Status zgłoszenia: ${zgloszenie.tytul}`}
+                                        className={klasaWyboruStatusu}
+                                        value={statusZgloszenia}
+                                        disabled={zapisujaceSieId === zgloszenie.id}
+                                        onChange={(zdarzenie) =>
+                                            aktualizujZgloszenie(zgloszenie, {
+                                                status: zdarzenie.target.value,
                                             })
                                         }
                                     >
-                                        {ISSUE_STATUSES.map((option) => (
-                                            <option key={option} value={option}>
-                                                {option}
+                                        {STATUSY_ZGLOSZEN.map((status) => (
+                                            <option key={status} value={status}>
+                                                {status}
                                             </option>
                                         ))}
                                     </select>
                                 </TableCell>
                                 <TableCell className="min-w-64 whitespace-normal">
-                                    <p className="mb-2 text-sm text-muted-foreground">{comment}</p>
+                                    <p className="mb-2 text-sm text-muted-foreground">{komentarz}</p>
                                     <Textarea
-                                        aria-label={`Komentarz do zgłoszenia: ${ticket.tytul}`}
+                                        aria-label={`Komentarz do zgłoszenia: ${zgloszenie.tytul}`}
                                         placeholder="Dodaj komentarz..."
-                                        value={commentDraft}
-                                        onChange={(event) =>
-                                            setCommentDrafts((current) => ({
-                                                ...current,
-                                                [ticket.id]: event.target.value,
+                                        value={szkicKomentarza}
+                                        onChange={(zdarzenie) =>
+                                            ustawSzkiceKomentarzy((aktualneSzkice) => ({
+                                                ...aktualneSzkice,
+                                                [zgloszenie.id]: zdarzenie.target.value,
                                             }))
                                         }
-                                        disabled={busyId === ticket.id}
+                                        disabled={zapisujaceSieId === zgloszenie.id}
                                     />
                                 </TableCell>
                                 <TableCell>
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        disabled={busyId === ticket.id}
+                                        disabled={zapisujaceSieId === zgloszenie.id}
                                         onClick={() =>
-                                            updateTicket(ticket, {
-                                                komentarz: commentDraft,
+                                            aktualizujZgloszenie(zgloszenie, {
+                                                komentarz: szkicKomentarza,
                                             })
                                         }
                                     >
-                                        {saveLabel}
+                                        {etykietaZapisu}
                                     </Button>
                                 </TableCell>
                             </TableRow>
@@ -255,25 +422,25 @@ export default function Tech() {
     }
 
     return (
-        <TechLayout
-            brandSubtitle="Panel technika"
-            title="Zgłoszenia"
-            subtitle="Zarządzaj zgłoszeniami użytkowników"
-            sectionTitle="Wszystkie zgłoszenia"
-            sectionMeta={`${visibleTickets.length} z ${tickets.length}`}
+        <UkladPanelu
+            podtytulMarki="Panel technika"
+            tytul="Zgłoszenia"
+            podtytul="Zarządzaj zgłoszeniami użytkowników"
+            tytulSekcji="Wszystkie zgłoszenia"
+            metadaneSekcji={`${widoczneZgloszenia.length} z ${zgloszenia.length}`}
         >
             <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
                 <div className="flex flex-wrap gap-3">
                     <div className="grid gap-1.5">
                         <Label htmlFor="filter-status">Status</Label>
                         <select
-                            id="filter-status"
-                            className={filterClassName}
-                            value={statusFilter}
-                            onChange={(event) => setStatusFilter(event.target.value)}
+                            id="filtr-statusu"
+                            className={klasaFiltrow}
+                            value={filtrStatusu}
+                            onChange={(zdarzenie) => ustawFiltrStatusu(zdarzenie.target.value)}
                         >
                             <option value="">Wszystkie</option>
-                            {ISSUE_STATUSES.map((status) => (
+                            {STATUSY_ZGLOSZEN.map((status) => (
                                 <option key={status} value={status}>
                                     {status}
                                 </option>
@@ -283,15 +450,15 @@ export default function Tech() {
                     <div className="grid gap-1.5">
                         <Label htmlFor="filter-room">Sala</Label>
                         <select
-                            id="filter-room"
-                            className={filterClassName}
-                            value={roomFilter}
-                            onChange={(event) => setRoomFilter(event.target.value)}
+                            id="filtr-sali"
+                            className={klasaFiltrow}
+                            value={filtrSali}
+                            onChange={(zdarzenie) => ustawFiltrSali(zdarzenie.target.value)}
                         >
                             <option value="">Wszystkie</option>
-                            {ISSUE_ROOMS.map((room) => (
-                                <option key={room} value={room}>
-                                    {room}
+                            {NUMERY_SAL.map((sala) => (
+                                <option key={sala} value={sala}>
+                                    {sala}
                                 </option>
                             ))}
                         </select>
@@ -299,17 +466,17 @@ export default function Tech() {
                     <div className="grid gap-1.5">
                         <Label htmlFor="filter-priority">Priorytet</Label>
                         <select
-                            id="filter-priority"
-                            className={filterClassName}
-                            value={priorityFilter}
-                            onChange={(event) =>
-                                setPriorityFilter(event.target.value)
+                            id="filtr-priorytetu"
+                            className={klasaFiltrow}
+                            value={filtrPriorytetu}
+                            onChange={(zdarzenie) =>
+                                ustawFiltrPriorytetu(zdarzenie.target.value)
                             }
                         >
                             <option value="">Wszystkie</option>
-                            {ISSUE_PRIORITIES.map((priority) => (
-                                <option key={priority} value={priority}>
-                                    {priority}
+                            {PRIORYTETY_ZGLOSZEN.map((priorytet) => (
+                                <option key={priorytet} value={priorytet}>
+                                    {priorytet}
                                 </option>
                             ))}
                         </select>
@@ -324,18 +491,18 @@ export default function Tech() {
                         borderColor: "var(--line)",
                         color: "var(--text)",
                     }}
-                    onClick={handleLogout}
+                    onClick={obsluzWylogowanie}
                 >
                     Wyloguj się
                 </Button>
             </div>
 
-            {error && (
+            {komunikatBledu && (
                 <p role="alert" className="mb-4 text-sm text-red-600">
-                    {error}
+                    {komunikatBledu}
                 </p>
             )}
-            {ticketContent}
-        </TechLayout>
+            {zawartoscZgloszen}
+        </UkladPanelu>
     );
 }

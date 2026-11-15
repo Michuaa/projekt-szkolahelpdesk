@@ -1,5 +1,5 @@
 import Rejestracja from "@/components/rejestracja"
 
-export default function Home() {
+export default function StronaRejestracji() {
   return <Rejestracja />;
 }

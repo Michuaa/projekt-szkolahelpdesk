@@ -1,12 +1,12 @@
 "use client";
 
-import Tech from "@/components/tech";
-import ProtectedPanel from "@/components/protected-panel";
+import PanelTechnika from "@/components/tech";
+import ChronionyPanel from "@/components/protected-panel";
 
-export default function TechPanelPage() {
+export default function StronaPaneluTechnika() {
     return (
-        <ProtectedPanel role="tech">
-            <Tech />
-        </ProtectedPanel>
+        <ChronionyPanel rola="tech">
+            <PanelTechnika />
+        </ChronionyPanel>
     );
 }

@@ -3,56 +3,56 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import TechLayout from "@/components/tech-layout";
-import { register } from "@/lib/pocketbase";
+import UkladPanelu from "@/components/tech-layout";
+import { zarejestrujUzytkownika } from "@/lib/pocketbase";
 
 export default function Rejestracja() {
-    const router = useRouter();
-    const [error, setError] = useState("");
-    const [busy, setBusy] = useState(false);
+    const nawigator = useRouter();
+    const [komunikatBledu, ustawKomunikatBledu] = useState("");
+    const [czyTrwaRejestracja, ustawCzyTrwaRejestracja] = useState(false);
 
-    async function handleSubmit(event) {
-        event.preventDefault();
-        setError("");
+    async function obsluzWyslanieFormularza(zdarzenie) {
+        zdarzenie.preventDefault();
+        ustawKomunikatBledu("");
 
-        const form = event.currentTarget;
-        const formData = new FormData(form);
-        const password = formData.get("password");
+        const formularz = zdarzenie.currentTarget;
+        const daneFormularza = new FormData(formularz);
+        const haslo = daneFormularza.get("password");
 
-        if (password !== formData.get("confirmPassword")) {
-            setError("Podane hasła nie są takie same.");
+        if (haslo !== daneFormularza.get("confirmPassword")) {
+            ustawKomunikatBledu("Podane hasła nie są takie same.");
             return;
         }
 
-        setBusy(true);
+        ustawCzyTrwaRejestracja(true);
         try {
-            const auth = await register({
-                name: formData.get("name"),
-                email: formData.get("email"),
-                password,
+            const uwierzytelnienie = await zarejestrujUzytkownika({
+                name: daneFormularza.get("name"),
+                email: daneFormularza.get("email"),
+                password: haslo,
             });
-            if (auth.user.czyTechnik) {
-                router.push("/techpanel");
+            if (uwierzytelnienie.user.czyTechnik) {
+                nawigator.push("/techpanel");
             } else {
-                router.push("/userpanel");
+                nawigator.push("/userpanel");
             }
-        } catch (err) {
-            setError(err.message);
+        } catch (blad) {
+            ustawKomunikatBledu(blad.message);
         } finally {
-            setBusy(false);
+            ustawCzyTrwaRejestracja(false);
         }
     }
 
     return (
-        <TechLayout
-            brandSubtitle="Dostęp do systemu"
-            eyebrow="Dołącz do nas"
-            title="Utwórz konto"
-            subtitle="Panel szkolnego helpdesku"
-            sectionTitle="Dane konta"
-            sectionMeta="Nowy użytkownik"
+        <UkladPanelu
+            podtytulMarki="Dostęp do systemu"
+            nadtytul="Dołącz do nas"
+            tytul="Utwórz konto"
+            podtytul="Panel szkolnego helpdesku"
+            tytulSekcji="Dane konta"
+            metadaneSekcji="Nowy użytkownik"
         >
-            <form className="tech-form" onSubmit={handleSubmit}>
+            <form className="tech-form" onSubmit={obsluzWyslanieFormularza}>
                 <label className="tech-field">
                     <span className="tech-label">Imię i nazwisko</span>
                     <input
@@ -92,14 +92,17 @@ export default function Rejestracja() {
                         required
                     />
                 </label>
-                {error && (
+                {komunikatBledu && (
                     <p role="alert" className="tech-form-note">
-                        {error}
+                        {komunikatBledu}
                     </p>
                 )}
-                <button className="tech-static-button" disabled={busy}>
-                    {busy && "Tworzenie konta..."}
-                    {!busy && "Utwórz konto"}
+                <button
+                    className="tech-static-button"
+                    disabled={czyTrwaRejestracja}
+                >
+                    {czyTrwaRejestracja && "Tworzenie konta..."}
+                    {!czyTrwaRejestracja && "Utwórz konto"}
                 </button>
                 <p className="tech-form-note">
                     Masz już konto?{" "}
@@ -108,6 +111,6 @@ export default function Rejestracja() {
                     </Link>
                 </p>
             </form>
-        </TechLayout>
+        </UkladPanelu>
     );
 }

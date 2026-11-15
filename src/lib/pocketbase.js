@@ -1,143 +1,210 @@
-export const POCKETBASE_URL =
-    "https://pocketbase.admin.mp.zs1mm.edu.pl";
+import PocketBase from "pocketbase";
 
-const AUTH_KEY = "helpdesk-auth";
+export const ADRES_POCKETBASE =
+    process.env.NEXT_PUBLIC_POCKETBASE_URL?.replace(/\/+$/, "") || "";
 
-export function getSavedAuth() {
+const KLUCZ_UWIERZYTELNIENIA = "helpdesk-auth";
+let klientPocketBase;
+
+function pobierzSkonfigurowanyAdres() {
+    if (!ADRES_POCKETBASE) {
+        throw new Error(
+            "Brak konfiguracji PocketBase. Ustaw NEXT_PUBLIC_POCKETBASE_URL."
+        );
+    }
+
+    return ADRES_POCKETBASE;
+}
+
+export function pobierzKlientaPocketBase() {
+    const adres = pobierzSkonfigurowanyAdres();
+    if (!klientPocketBase) {
+        klientPocketBase = new PocketBase(adres);
+    }
+
+    let daneUwierzytelnienia = null;
     try {
-        return JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+        daneUwierzytelnienia = JSON.parse(
+            localStorage.getItem(KLUCZ_UWIERZYTELNIENIA) || "null"
+        );
+    } catch {
+        daneUwierzytelnienia = null;
+    }
+
+    if (daneUwierzytelnienia?.token && daneUwierzytelnienia?.user) {
+        if (klientPocketBase.authStore.token !== daneUwierzytelnienia.token) {
+            klientPocketBase.authStore.save(
+                daneUwierzytelnienia.token,
+                daneUwierzytelnienia.user
+            );
+        }
+    } else if (klientPocketBase.authStore.token) {
+        klientPocketBase.authStore.clear();
+    }
+
+    return klientPocketBase;
+}
+
+export function pobierzZapisaneUwierzytelnienie() {
+    try {
+        return JSON.parse(
+            localStorage.getItem(KLUCZ_UWIERZYTELNIENIA) || "null"
+        );
     } catch {
         return null;
     }
 }
 
-function saveAuth(data) {
-    const user = data.record ?? data.model;
-    const auth = { token: data.token, user };
-    localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
-    return auth;
+function zapiszUwierzytelnienie(dane) {
+    const uzytkownik = dane.record ?? dane.model;
+    const uwierzytelnienie = { token: dane.token, user: uzytkownik };
+    localStorage.setItem(
+        KLUCZ_UWIERZYTELNIENIA,
+        JSON.stringify(uwierzytelnienie)
+    );
+    if (klientPocketBase) {
+        klientPocketBase.authStore.save(dane.token, uzytkownik);
+    }
+    return uwierzytelnienie;
 }
 
-async function readResponse(response, fallbackMessage) {
-    let data;
+async function odczytajOdpowiedz(odpowiedzHttp, komunikatZapasowy) {
+    let daneOdpowiedzi;
 
     try {
-        data = await response.json();
+        daneOdpowiedzi = await odpowiedzHttp.json();
     } catch {
-        if (!response.ok) {
+        if (!odpowiedzHttp.ok) {
             throw new Error(
-                `${fallbackMessage} (HTTP ${response.status}; PocketBase nie zwrócił poprawnej odpowiedzi JSON).`
+                `${komunikatZapasowy} (HTTP ${odpowiedzHttp.status}; PocketBase nie zwrócił poprawnej odpowiedzi JSON).`
             );
         }
         throw new Error("PocketBase zwrócił nieprawidłową odpowiedź.");
     }
 
-    if (!response.ok) {
-        const fieldErrors = [];
-        for (const [field, details] of Object.entries(data.data || {})) {
-            if (details?.message) {
-                fieldErrors.push(`${field}: ${details.message}`);
+    if (!odpowiedzHttp.ok) {
+        const bledyPol = [];
+        for (const [nazwaPola, szczegoly] of Object.entries(
+            daneOdpowiedzi.data || {}
+        )) {
+            if (szczegoly?.message) {
+                bledyPol.push(`${nazwaPola}: ${szczegoly.message}`);
             }
         }
 
-        let message = fieldErrors.join("; ");
+        let komunikatBledu = bledyPol.join("; ");
         if (
-            response.status === 400 &&
-            data.message === "Failed to authenticate."
+            odpowiedzHttp.status === 400 &&
+            daneOdpowiedzi.message === "Failed to authenticate."
         ) {
-            message =
+            komunikatBledu =
                 "Nieprawidłowy e-mail lub hasło albo konto nie istnieje w kolekcji users. Sprawdź dane logowania i konto w PocketBase.";
-        } else if (!message) {
-            message = data.message || fallbackMessage;
+        } else if (!komunikatBledu) {
+            komunikatBledu = daneOdpowiedzi.message || komunikatZapasowy;
         }
 
-        throw new Error(`${message} (HTTP ${response.status})`);
+        throw new Error(`${komunikatBledu} (HTTP ${odpowiedzHttp.status})`);
     }
 
-    return data;
+    return daneOdpowiedzi;
 }
 
-export async function login(email, password) {
-    let identity = "";
-    if (typeof email === "string") {
-        identity = email.trim();
+export async function zalogujUzytkownika(adresEmail, haslo) {
+    const adres = pobierzSkonfigurowanyAdres();
+    let tozsamosc = "";
+    if (typeof adresEmail === "string") {
+        tozsamosc = adresEmail.trim();
     }
 
-    const response = await fetch(
-        `${POCKETBASE_URL}/api/collections/users/auth-with-password`,
+    const odpowiedzHttp = await fetch(
+        `${adres}/api/collections/users/auth-with-password`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ identity, password }),
+            body: JSON.stringify({ identity: tozsamosc, password: haslo }),
         }
     );
 
-    const data = await readResponse(response, "Logowanie nie powiodło się.");
-    return saveAuth(data);
+    const daneOdpowiedzi = await odczytajOdpowiedz(
+        odpowiedzHttp,
+        "Logowanie nie powiodło się."
+    );
+    return zapiszUwierzytelnienie(daneOdpowiedzi);
 }
 
-export async function register({ name, email, password }) {
-    const response = await fetch(
-        `${POCKETBASE_URL}/api/collections/users/records`,
+export async function zarejestrujUzytkownika({
+    name: imie,
+    email: adresEmail,
+    password: haslo,
+}) {
+    const adres = pobierzSkonfigurowanyAdres();
+    const odpowiedzHttp = await fetch(
+        `${adres}/api/collections/users/records`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                name,
-                email,
-                password,
-                passwordConfirm: password,
+                name: imie,
+                email: adresEmail,
+                password: haslo,
+                passwordConfirm: haslo,
                 czyTechnik: false,
             }),
         }
     );
 
-    await readResponse(response, "Rejestracja nie powiodła się.");
-    return login(email, password);
+    await odczytajOdpowiedz(odpowiedzHttp, "Rejestracja nie powiodła się.");
+    return zalogujUzytkownika(adresEmail, haslo);
 }
 
-export function logout() {
-    localStorage.removeItem(AUTH_KEY);
+export function wylogujUzytkownika() {
+    localStorage.removeItem(KLUCZ_UWIERZYTELNIENIA);
+    if (klientPocketBase) klientPocketBase.authStore.clear();
 }
 
-export async function pocketBaseFetch(path, options = {}) {
-    const auth = getSavedAuth();
-    const headers = new Headers(options.headers || {});
+export async function wykonajZapytaniePocketBase(sciezka, opcje = {}) {
+    const adres = pobierzSkonfigurowanyAdres();
+    const uwierzytelnienie = pobierzZapisaneUwierzytelnienie();
+    const naglowki = new Headers(opcje.headers || {});
 
-    if (auth?.token) headers.set("Authorization", auth.token);
+    if (uwierzytelnienie?.token) {
+        naglowki.set("Authorization", uwierzytelnienie.token);
+    }
 
-    const response = await fetch(`${POCKETBASE_URL}${path}`, {
-        ...options,
-        headers,
+    const odpowiedzHttp = await fetch(`${adres}${sciezka}`, {
+        ...opcje,
+        headers: naglowki,
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || "Wystąpił błąd.");
+    const daneOdpowiedzi = await odpowiedzHttp.json().catch(() => ({}));
+    if (!odpowiedzHttp.ok) {
+        throw new Error(daneOdpowiedzi.message || "Wystąpił błąd.");
+    }
 
-    return data;
+    return daneOdpowiedzi;
 }
 
-export async function fetchAllRecords(collection, filter) {
-    const records = [];
-    let page = 1;
-    let totalPages = 1;
+export async function pobierzWszystkieRekordy(kolekcja, filtr) {
+    const rekordy = [];
+    let numerStrony = 1;
+    let liczbaStron = 1;
 
     do {
-        const query = new URLSearchParams({
-            page: String(page),
+        const parametryZapytania = new URLSearchParams({
+            page: String(numerStrony),
             perPage: "200",
             sort: "-created",
         });
 
-        if (filter) query.set("filter", filter);
+        if (filtr) parametryZapytania.set("filter", filtr);
 
-        const result = await pocketBaseFetch(
-            `/api/collections/${collection}/records?${query.toString()}`
+        const wynikZapytania = await wykonajZapytaniePocketBase(
+            `/api/collections/${kolekcja}/records?${parametryZapytania.toString()}`
         );
-        records.push(...(result.items || []));
-        totalPages = result.totalPages || 1;
-        page += 1;
-    } while (page <= totalPages);
+        rekordy.push(...(wynikZapytania.items || []));
+        liczbaStron = wynikZapytania.totalPages || 1;
+        numerStrony += 1;
+    } while (numerStrony <= liczbaStron);
 
-    return records;
+    return rekordy;
 }

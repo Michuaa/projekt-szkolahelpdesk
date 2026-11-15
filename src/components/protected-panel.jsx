@@ -2,39 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSavedAuth } from "@/lib/pocketbase";
+import { pobierzZapisaneUwierzytelnienie } from "@/lib/pocketbase";
 
-export default function ProtectedPanel({ role, children }) {
-    const router = useRouter();
-    const [allowed, setAllowed] = useState(false);
+export default function ChronionyPanel({ rola, children }) {
+    const nawigator = useRouter();
+    const [czyDozwolono, ustawCzyDozwolono] = useState(false);
 
     useEffect(() => {
-        let isCurrent = true;
-        const auth = getSavedAuth();
+        let czyAktualny = true;
+        const uwierzytelnienie = pobierzZapisaneUwierzytelnienie();
 
-        if (!auth?.token || !auth?.user) {
-            router.replace("/");
+        if (!uwierzytelnienie?.token || !uwierzytelnienie?.user) {
+            nawigator.replace("/");
             return;
         }
 
-        const isTechnician = auth.user.czyTechnik === true;
-        const shouldBeTechnician = role === "tech";
-        if (isTechnician !== shouldBeTechnician) {
-            let destination = "/userpanel";
-            if (isTechnician) destination = "/techpanel";
-            router.replace(destination);
+        const czyTechnik = uwierzytelnienie.user.czyTechnik === true;
+        const czyWymaganyTechnik = rola === "tech";
+        if (czyTechnik !== czyWymaganyTechnik) {
+            let sciezkaDocelowa = "/userpanel";
+            if (czyTechnik) sciezkaDocelowa = "/techpanel";
+            nawigator.replace(sciezkaDocelowa);
             return;
         }
 
         Promise.resolve().then(() => {
-            if (isCurrent) setAllowed(true);
+            if (czyAktualny) ustawCzyDozwolono(true);
         });
 
         return () => {
-            isCurrent = false;
+            czyAktualny = false;
         };
-    }, [role, router]);
+    }, [rola, nawigator]);
 
-    if (!allowed) return null;
+    if (!czyDozwolono) return null;
     return children;
 }

@@ -1,12 +1,12 @@
 "use client";
 
-import User from "@/components/user";
-import ProtectedPanel from "@/components/protected-panel";
+import PanelUzytkownika from "@/components/user";
+import ChronionyPanel from "@/components/protected-panel";
 
-export default function UserPanelPage() {
+export default function StronaPaneluUzytkownika() {
     return (
-        <ProtectedPanel role="user">
-            <User />
-        </ProtectedPanel>
+        <ChronionyPanel rola="user">
+            <PanelUzytkownika />
+        </ChronionyPanel>
     );
 }
