@@ -1,64 +1,136 @@
-# Konfiguracja aplikacji i PocketBase
+# Szkoła Helpdesk
 
-## Konfiguracja aplikacji
+## Opis projektu
 
-Skopiuj `.env.example` do `.env.local` i ustaw `NEXT_PUBLIC_POCKETBASE_URL` na
-publiczny adres PocketBase. W Coolify ustaw tę zmienną także w czasie buildu
-aplikacji Next.js, ponieważ zmienne `NEXT_PUBLIC_` są wstawiane do bundla podczas
-budowania. Nie commituj plików `.env`.
+Aplikacja webowa do obsługi zgłoszeń serwisowych i technicznych w szkole. Użytkownik może zarejestrować konto, dodać nowe zgłoszenie z opisem problemu, lokalizacją (np. sala), kategorią, priorytetem oraz załączonym zdjęciem. Technik otrzymuje widok wszystkich zgłoszeń, może je filtrować po statusie, sali i priorytecie, aktualizować status oraz dodawać komentarze do sprawy.
 
-## Konfiguracja PocketBase
+Projekt składa się z:
+- front-endu w Next.js,
+- backendu / bazy danych w PocketBase,
+- logowania i rejestracji użytkowników,
+- paneli użytkownika i technika,
+- aktualizacji w czasie rzeczywistym (realtime).
+## Zrzuty ekranu
 
-Aplikacja używa kolekcji `users` typu Auth oraz `issues` typu Base. Kolekcja
-`users` musi mieć pole Boolean `czyTechnik`. Kolekcja `issues` musi mieć pola
-`tytul` (text), `opis` (text), `uzytkownik` (relacja do `users`), `zdjecie`
-(opcjonalny plik), `sala` (text), `kategoria` (select), `priorytet` (select),
-`status` (select) i `komentarz` (text). Statusy to `nowe`, `w realizacji`,
-`zamknięte`; wartość domyślna `nowe`. Plik `zdjecie` powinien mieć maksymalnie
-jeden plik, limit 5242880 bajtów, dozwolone rozszerzenia graficzne i włączoną
-opcję plików chronionych. Dostęp do obrazów wymaga uwierzytelnienia i reguły
-widoczności rekordu.
+Poniżej znajdziesz miejsca, w które należy wkleić zrzuty ekranu. Wstawiaj tylko odpowiednie grafiki i zachowaj nazewnictwo plików według własnego projektu.
 
-Ustaw reguły API kolekcji `issues` w panelu PocketBase. Ograniczają one
-bezpośrednie zapytania API, a nie tylko widok w interfejsie:
+### 1. Ekran logowania
 
-- List i View: `@request.auth.id != "" && (@request.auth.czyTechnik = true || uzytkownik = @request.auth.id)`
-- Create: `@request.auth.id != "" && @request.auth.czyTechnik != true && @request.body.uzytkownik = @request.auth.id`
-- Update i Delete: `@request.auth.id != "" && @request.auth.czyTechnik = true`
+![alt text](image-1.png)
 
-W kolekcji `users` ustaw Create rule tak, aby nowe konto nie mogło nadać sobie
-roli technika: `@request.body.czyTechnik:isset = false || @request.body.czyTechnik = false`.
-Ustaw Update rule na
-`@request.auth.id != "" && id = @request.auth.id && @request.body.czyTechnik:changed = false`,
-aby użytkownik nie mógł zmienić własnej roli.
+### 2. Ekran rejestracji
+![alt text](image-2.png)
 
-### Historia zmian
+### 3. Panel użytkownika
 
-Utwórz w panelu PocketBase kolekcję typu Base `ticket_events` z polami:
+![alt text](image-3.png)
+### 4. Panel technika
 
-- `issue` — wymagana relacja do `issues`, maksymalnie jeden rekord,
-- `actor` — wymagana relacja do `users`, maksymalnie jeden rekord,
-- `from_status` — wymagany Text,
-- `to_status` — wymagany Text.
+![alt text](image.png)
 
-Pozostaw systemowe pole `created`; PocketBase zapisze w nim czas utworzenia.
-Ustaw reguły kolekcji:
+## Instrukcja uruchomienia lokalnie
 
-- List i View: `@request.auth.id != "" && (@request.auth.czyTechnik = true || issue.uzytkownik = @request.auth.id)`
-- Create: `@request.auth.id != "" && @request.auth.czyTechnik = true && actor = @request.auth.id`
-- Update i Delete: zablokowane (locked).
+### Wymagania
+- Node.js 20+
+- npm
+- PocketBase (uruchomiony lokalnie lub jako osobna usługa)
 
-Panel technika tworzy wpis po udanej zmianie statusu. Wariant ten zapisuje
-historię z przeglądarki: reguła API wymusza, że aktorem jest zalogowany technik,
-ale technik może ominąć panel, zmienić zgłoszenie bez wpisu albo sfałszować
-poprzedni status. Nie jest to niepodważalny audyt serwerowy.
+### 1. Klonowanie repozytorium
 
-Subskrypcje realtime podlegają regułom List/View PocketBase. Panel technika
-subskrybuje kolekcję `issues`; panel użytkownika otrzymuje wyłącznie zmiany
-zgłoszeń, do których ma dostęp API. Serwer PocketBase i wdrożona aplikacja muszą
-mieć włączoną obsługę API realtime.
+```bash
+git clone https://github.com/Michuaa/projekt-szkolahelpdesk
+cd projekt-szkolahelpdesk
+```
 
-## Trwałość danych w Coolify
+### 2. Instalacja zależności
 
-W Coolify pozostaw trwały wolumen danych zamontowany pod `/app/pb_data`. Nie
-usuwaj tego wolumenu przy redeployu.
+```bash
+npm install
+```
+
+### 3. Konfiguracja zmiennych środowiskowych
+
+Utwórz plik `.env.local` w katalogu głównym projektu i dodaj adres PocketBase:
+
+```env
+NEXT_PUBLIC_POCKETBASE_URL=https://your-pocketbase.example.com
+```
+
+### 4. Uruchomienie PocketBase
+
+Uruchom PocketBase lokalnie w katalogu projektu albo osobno na maszynie deweloperskiej. Należy zapewnić dostęp do API i panelu administracyjnego.
+
+Przykładowo (jeśli PocketBase jest zainstalowany lokalnie):
+
+```bash
+pocketbase serve
+```
+
+W przypadku Docker / innej konfiguracji należy upewnić się, że:
+- PocketBase jest dostępny pod adresem wskazanym w `NEXT_PUBLIC_POCKETBASE_URL`,
+- dane są zapisane na trwałym wolumenie,
+- kolekcje i reguły API są skonfigurowane zgodnie z wymaganiami aplikacji.
+
+### 5. Uruchomienie aplikacji
+
+```bash
+npm run dev
+```
+
+Aplikacja będzie dostępna pod adresem:
+
+```text
+http://localhost:3000
+```
+
+### 6. Budowa produkcyjna
+
+```bash
+npm run build
+npm run start
+```
+
+## Wdrożenie w Coolify
+
+Poniżej znajduje się szablon opisu wdrożenia. Wypełnij pola według własnej konfiguracji środowiska.
+
+### Usługi w Coolify
+
+1. Usługa frontendowa: Next.js / aplikacja webowa
+   - Nazwa: np. `szkola-helpdesk-web`
+   - Budowanie: z repozytorium Git
+   - Startup / komenda: `npm run start` (lub `npm run dev` tylko dla środowiska deweloperskiego)
+   - Port: `3000`
+
+2. Usługa backendowa: PocketBase
+   - Nazwa: np. `szkola-helpdesk-pb`
+   - Typ: aplikacja / serwer bazy i API
+   - Port: `8090` (lub inny zgodnie z konfiguracją)
+   - Katalog danych: ustaw na wolumen trwały
+
+### Wolumeny
+
+Trzeba mieć oddzielny trwały wolumen dla PocketBase, aby dane nie były usuwane po redeployu.
+
+Przykładowa konfiguracja:
+- `pb_data` -> `/pb` albo `/app/pb_data`
+- lokalizacja danych PocketBase: katalog z bazą, kolekcjami, migrujami i plikami użytkowników / zgłoszeń
+
+Ważne:
+- wolumen dla PocketBase musi być trwały,
+- nie kasuj go przy kolejnym wdrożeniu,
+- jeżeli app korzysta z plików z załączników, upewnij się, że są one przechowywane w katalogu danych PocketBase.
+
+## Konta testowe
+
+Poniżej zostawiono miejsca do wstawienia danych testowych. Nie wpisuj danych fikcyjnych — uzupełnij je po stronie projektu / środowiska testowego.
+
+### Konto użytkownika
+- Email: michal.plochocki.pro@live.zs1mm.edu.pl
+- Hasło: Fokusi123
+- Rola: użytkownik końcowy
+
+### Konto technika
+- Email: fokusi297@gmail.com
+- Hasło: admin123
+- Rola: technik / administrator panelu technicznego

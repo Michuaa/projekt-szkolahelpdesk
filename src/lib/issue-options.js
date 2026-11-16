@@ -1,7 +1,7 @@
 export const NUMERY_SAL = [
-    ...Array.from({ length: 16 }, (_, index) => index + 5),
-    ...Array.from({ length: 23 }, (_, index) => index + 100),
-    ...Array.from({ length: 23 }, (_, index) => index + 200),
+    ...Array.from({ length: 15 }, (_, index) => index + 5),
+    ...Array.from({ length: 22 }, (_, index) => index + 100),
+    ...Array.from({ length: 22 }, (_, index) => index + 200),
 ];
 
 export const KATEGORIE_ZGLOSZEN = [
